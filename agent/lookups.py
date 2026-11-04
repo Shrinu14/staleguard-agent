@@ -186,7 +186,7 @@ IGNORED_DIRS: Final = frozenset({
 POLICY_FILENAME: Final = ".agent.toml"      # per-repo policy (e.g. confidential = true)
 POLICY_CONFIDENTIAL_KEY: Final = "confidential"
 STATE_DIRNAME: Final = ".staleguard"        # per-repo runtime data folder
-CACHE_DB_FILENAME: Final = "cache.sqlite3"  # verdict cache + cost ledger
+CACHE_DB_FILENAME: Final = "cache.sqlite3"  # freshness verdict cache (per repo)
 SESSION_LOG_DIRNAME: Final = "sessions"     # JSONL logs, one file per session
 # The spend ledger is per USER, not per repo (a budget must not reset when you
 # switch repos), so it lives in the home directory: ~/.staleguard/ledger.sqlite3
@@ -241,6 +241,42 @@ DEFAULT_DOC_DOMAINS: Final = ("pypi.org", "github.com", "readthedocs.io")
 
 TAVILY_MAX_RESULTS: Final = 5
 TAVILY_SEARCH_DEPTH: Final = "basic"
+
+# Methods called on objects whose type ast can't know. When a file imports the
+# library and calls one of these, it is checked as "<library>.<Class>.<method>".
+# This only chooses WHAT to research; the verdict always comes from sources.
+LIBRARY_METHOD_HINTS: Final = MappingProxyType({
+    "pydantic": ("BaseModel", ("dict", "json", "parse_obj", "parse_raw", "parse_file",
+                               "from_orm", "update_forward_refs", "schema_json",
+                               "construct")),
+})
+
+FRESHNESS_MAX_CHECKS: Final = 6          # API uses researched per edit (cost cap)
+FRESHNESS_CACHE_TTL_DAYS: Final = 7      # reuse a verdict for this long
+FRESHNESS_SNIPPET_CHARS: Final = 700     # per source, in the judge prompt
+FRESHNESS_JUDGE_MAX_TOKENS: Final = 400
+FRESHNESS_QUOTE_MIN_CHARS: Final = 12    # shorter "quotes" don't count as evidence
+# Only identifiers, dots and version specifiers may reach Tavily — never code.
+SAFE_QUERY_TERM_PATTERN: Final = r"^[A-Za-z0-9_.\-<>=!~,* ]{1,80}$"
+FRESHNESS_QUERY_TEMPLATE: Final = "{distribution} {version} {symbol} deprecated removed replaced"
+FRESHNESS_MODEL_NOTE_HEADER: Final = (
+    "Freshness check (live docs) found outdated API use in this edit. "
+    "Propose a fix with another edit_file call:")
+
+FRESHNESS_JUDGE_PROMPT: Final = """\
+You check whether a Python API is still current, using ONLY the numbered sources given.
+Answer with ONE JSON object and nothing else:
+{"status": "supported" | "changed" | "unverifiable",
+ "evidence_quote": "<a sentence copied word for word from the cited source, or empty>",
+ "source": <the number of the cited source, or null>,
+ "inference": "<one or two sentences of your own reasoning>",
+ "suggested_fix": "<the current replacement API, or empty>"}
+Rules:
+- "changed": a source says the API is deprecated, removed, renamed or replaced in the \
+given version (or in the latest version if the version is unknown).
+- "supported": a source shows the API as current.
+- "unverifiable": the sources don't say either way. Never guess.
+- evidence_quote must be copied exactly from the source you cite; inference is yours."""
 
 
 # ─────────────────────────────────────────────────────────────

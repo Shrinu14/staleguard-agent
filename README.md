@@ -73,6 +73,32 @@ uv run staleguard tool read_file '{"path": "agent/llm.py", "start": 1, "end": 20
 uv run staleguard tool edit_file '{"path": "README.md", "search": "# StaleGuard Agent", "replace": "# StaleGuard"}'
 ```
 
+## Freshness check: stale library APIs, caught before you approve
+
+Models are trained on old code, so they write old APIs. Before you approve an edit,
+every library API it **adds** is checked against live docs:
+
+1. `ast` finds the calls (`openai.ChatCompletion.create`, `user.dict()` …) — no LLM.
+2. The repo's own version is read (`.venv`, `uv.lock`, `requirements.txt`, `pyproject.toml`).
+3. Tavily searches the library's official doc domains. Only names are sent, never code.
+4. A judge model (through Bifrost) answers in JSON; code then checks that its quote
+   really appears in the cited page. No verbatim evidence → `unverifiable`, never a guess.
+5. The table appears under the diff. `changed` findings go back to the agent so it can
+   propose a fix (which you approve too).
+
+| Column | Meaning |
+|---|---|
+| Evidence | A sentence quoted word for word from the linked page |
+| Inference | The judge model's own reasoning and suggested fix — labelled, not evidence |
+
+```bash
+uv run staleguard check chat.py --repo bench/repos/stale_api     # pre-1.0 openai code
+uv run staleguard check models.py --repo bench/repos/stale_api   # Pydantic v1 code
+```
+
+Verdicts are cached per repo for 7 days (`.staleguard/cache.sqlite3`), so a repeat
+check costs no Tavily credit. Turn it off for a run with `--no-freshness`.
+
 ## Policy: confidential repos and the budget
 
 **Confidential repos.** Put `confidential = true` in a repo's `.agent.toml` and the agent
@@ -138,11 +164,11 @@ tiktoken estimate). Long command output (e.g. pytest) keeps the exit code and th
 | `agent/router.py` | Planner/editor model routing by turn |
 | `agent/policy.py` | Confidential mode (local-only) and the budget ledger + pre-call check |
 | `agent/session.py` | JSONL log of every run in `<repo>/.staleguard/sessions/` |
-| `agent/cli.py` | Command-line entry point (`doctor`, `ping`, `tool`, `map`, `run`) |
+| `freshness/` | Freshness checker: `extract` (ast), `versions`, `research` (Tavily), `judge`, `cache`, `report`, `checker` |
+| `agent/cli.py` | Command-line entry point (`doctor`, `ping`, `tool`, `map`, `check`, `run`) |
 | `bench/repos/` | Small buggy sample repos for demos and benchmarks |
 | `bifrost/config.json` | Gateway config: providers and virtual keys |
 | `docker-compose.yml` | Runs Bifrost |
-| `freshness/` | API-freshness checker (Tavily) |
 
 ## Development
 

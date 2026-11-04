@@ -7,6 +7,11 @@ with a preview and an apply() function. The executor in agent/tools.py asks
 an Approver, and calls apply() only on a yes. Because the decision lives in
 Python code, no prompt — and no prompt injection — can skip it.
 
+Reviewers (optional): before the user is asked, a reviewer may attach a
+Review to the action — e.g. the freshness checker's report on the new code.
+The user sees it next to the diff; its note for the model is appended to the
+tool result either way, so the agent can propose a fix.
+
 Approvers:
   ConsoleApprover  real user: shows the preview, asks [y/N] (default No)
   AllowAll         tests/benchmarks that must run unattended
@@ -16,7 +21,7 @@ Approvers:
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Any, Protocol
 
 from rich.console import Console
 from rich.panel import Panel
@@ -24,6 +29,21 @@ from rich.prompt import Confirm
 from rich.syntax import Syntax
 
 from agent.lookups import Tool
+
+
+@dataclass(frozen=True, slots=True)
+class CodeChange:
+    """The file content before and after an edit (for reviewers)."""
+
+    path: str
+    old: str
+    new: str
+
+
+@dataclass(frozen=True, slots=True)
+class Review:
+    display: Any       # a Rich renderable shown under the preview
+    model_note: str    # appended to the tool result ("" = nothing to tell the model)
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,6 +55,12 @@ class PendingAction:
     preview: str  # what the user reviews: a unified diff or the exact command
     apply: Callable[[], str] = field(repr=False)  # performs it; returns output text
     preview_lexer: str = "text"  # "diff" for edits, "bash" for commands
+    change: CodeChange | None = None  # set by edit_file
+    review: Review | None = None      # set by a reviewer before approval
+
+
+class Reviewer(Protocol):
+    def __call__(self, action: PendingAction) -> Review | None: ...
 
 
 class Approver(Protocol):
@@ -67,4 +93,6 @@ class ConsoleApprover:
             Panel(body, title=f"[bold]{action.tool.value}[/bold] — {action.summary}",
                   border_style="yellow")
         )
+        if action.review is not None:
+            self.console.print(action.review.display)
         return Confirm.ask("Approve?", default=False, console=self.console)

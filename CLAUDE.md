@@ -76,7 +76,7 @@ freshness checker that catches outdated library/API usage in its own proposed co
 
 ---
 
-## 4. Current state (Pieces 1–7 — DONE)
+## 4. Current state (Pieces 1–8 — DONE)
 
 ```
 staleguard-agent/
@@ -205,6 +205,36 @@ Routing + compaction (Piece 7):
   1,652 cached vs 371 without; compaction ~5,143 → ~2,017 tokens on a real-size repo,
   but qwen 7B's final answer lost detail — benchmark must measure success, not just tokens.
   First live run caught 2 bugs (negative cut, summary bigger than history) → guards above.
+
+Freshness checker (Piece 8, `freshness/`):
+- `extract.py` (ast): alias table from imports → maximal name/attribute chains resolved
+  to qualified symbols; skips stdlib, repo-local modules, bare modules, and names used
+  only in class bases/annotations. `LIBRARY_METHOD_HINTS` (pydantic) → `x.dict()` checked
+  as `pydantic.BaseModel.dict` (marked "receiver type guessed"). `new_api_uses(old, new)`
+  = only what an edit adds.
+- `versions.py`: repo's `.venv` site-packages > `uv.lock` > `requirements*.txt` >
+  `pyproject.toml` > unknown. PEP 503 names, `IMPORT_TO_DISTRIBUTION`.
+- `research.py`: Tavily `include_domains` = `LIBRARY_DOC_DOMAINS`; query terms must match
+  `SAFE_QUERY_TERM_PATTERN` (names/version specs only) → code can't reach Tavily.
+- `judge.py`: `MODEL_JUDGE` (local model if confidential) via Bifrost, budget-checked.
+  pydantic `JudgeReply` → code enforces: cited source must be one we gave, quote must be
+  verbatim in it (≥ `FRESHNESS_QUOTE_MIN_CHARS`), else `unverifiable`. No sources → no
+  LLM call. Judge input = names + sources, never user code.
+- `cache.py`: `.staleguard/cache.sqlite3`, key (dist, version, symbol), TTL 7 days; only
+  changed/supported cached.
+- `checker.py`: cap `FRESHNESS_MAX_CHECKS` (calls first). A checker IS a `Reviewer`.
+- Gate: `PendingAction.change` (old/new) + `Reviewer` hook in `ToolExecutor` → report
+  printed under the diff before `[y/N]`; `changed` findings appended to the tool result
+  (approved or declined) so the agent proposes a fix. Reviewer errors never block edits.
+- CLI: `staleguard check FILE --repo` (exit 1 if changed); `run --freshness/--no-freshness`.
+- Live (qwen judge): `bench/repos/stale_api` → `openai.ChatCompletion.create`,
+  `BaseModel.dict`, `BaseModel.parse_obj` = changed with verbatim quotes from
+  github.com/openai and docs.pydantic.dev. `openai.api_key`, `@validator` = unverifiable
+  (no matching source / quote not verbatim). Agent run: qwen itself wrote
+  `openai.ChatCompletion.create`; the note with the docs quote reached the model.
+- qwen 7B as judge: inference/fix text is sometimes sloppy (it is labelled as inference).
+  A stronger `MODEL_JUDGE` would help. Semantic cache in Bifrost for judge calls: not
+  configured yet (needs a vector store; verify in Bifrost docs first).
 
 ---
 

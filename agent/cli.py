@@ -16,13 +16,14 @@ from rich.table import Table
 
 from agent import lookups
 from agent.approval import AllowAll, Approver, ConsoleApprover
-from agent.config import get_settings
+from agent.config import Settings, get_settings
 from agent.context import count_tokens
 from agent.llm import LLM, LLMError, is_local_model
 from agent.loop import AgentLoop, Event, RunResult
 from agent.policy import (
     BudgetExceeded,
     BudgetGuard,
+    ModelPlan,
     PolicyError,
     load_repo_policy,
     plan_models,
@@ -30,6 +31,11 @@ from agent.policy import (
 from agent.router import Router
 from agent.session import SessionLog
 from agent.tools import Repo, ToolError, ToolExecutor, repo_map
+from freshness.cache import VerdictCache
+from freshness.checker import FreshnessChecker
+from freshness.judge import Judge
+from freshness.report import render as render_freshness
+from freshness.research import ResearchError, TavilySearcher
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 console = Console()
@@ -201,6 +207,55 @@ def map_cmd(
         )
 
 @app.command()
+def check(
+    path: Annotated[Path, typer.Argument(help="Python file to check (path inside --repo).")],
+    repo: Annotated[Path, typer.Option("--repo", "-r", help="Repository root.")] = Path("."),
+) -> None:
+    """Freshness-check every third-party API used in a Python file (live docs)."""
+    s = get_settings()
+    try:
+        r = Repo(repo)
+        target = r.resolve(str(path))
+        plan = plan_models(s, load_repo_policy(r.root))
+        llm = LLM(s, local_only=plan.local_only)
+    except (ToolError, LLMError, PolicyError) as exc:
+        console.print(f"[red]✘ {exc}[/red]")
+        raise typer.Exit(2) from exc
+    for notice in plan.notices:
+        console.print(f"[bold magenta]🔒 {notice}[/bold magenta]")
+    checker = _make_checker(s, plan, llm, BudgetGuard.from_settings(s, repo=str(r.root)), r.root)
+    if checker is None:
+        raise typer.Exit(2)
+    source = target.read_text(encoding=lookups.FILE_ENCODING)
+    report = checker.check("", source)
+    if not report.verdicts:
+        console.print("No third-party API uses found.")
+        return
+    console.print(render_freshness(report.verdicts, title=f"Freshness: {r.rel(target)}",
+                                   skipped=report.skipped))
+    console.print(f"[dim]{len(report.verdicts)} checked · {report.cached} from cache · "
+                  f"{len(report.changed)} changed[/dim]")
+    if report.changed:
+        raise typer.Exit(1)
+
+
+def _make_checker(s: Settings, plan: ModelPlan, llm: LLM, budget: BudgetGuard,
+                  root: Path) -> FreshnessChecker | None:
+    """Tavily for research, the judge model through Bifrost (local if confidential)."""
+    key = s.tavily_api_key.get_secret_value() if s.tavily_api_key else ""
+    try:
+        searcher = TavilySearcher(key)
+    except ResearchError as exc:
+        console.print(f"[yellow]Freshness check off: {exc}[/yellow]")
+        return None
+    judge_model = plan.model if plan.local_only else s.model_for(lookups.ModelRole.JUDGE)
+    judge = Judge(llm, model=judge_model, fallbacks=plan.fallbacks, budget=budget)
+    return FreshnessChecker(root, searcher=searcher, judge=judge,
+                            cache=VerdictCache.for_repo(root),
+                            on_progress=lambda m: console.print(f"[dim]  ⟳ {m}[/dim]"))
+
+
+@app.command()
 def run(
     task: Annotated[str, typer.Argument(help="What the agent should do, in plain words.")],
     repo: Annotated[Path, typer.Option("--repo", "-r", help="Repository root.")] = Path("."),
@@ -231,6 +286,10 @@ def run(
         int, typer.Option("--compact-after", min=1,
                           help="Compact when the history has more turns than this.")
     ] = lookups.COMPACT_AFTER_TURNS,
+    freshness: Annotated[
+        bool, typer.Option("--freshness/--no-freshness",
+                           help="Check new library API uses in each edit against live docs.")
+    ] = True,
     stable_prefix: Annotated[
         bool, typer.Option("--stable-prefix/--no-stable-prefix",
                            help="Identical prompt prefix every turn (prompt caching).")
@@ -254,6 +313,9 @@ def run(
         console.print(f"[red]✘ {exc}[/red]")
         raise typer.Exit(2) from exc
     budget = BudgetGuard.from_settings(s, repo=str(executor.repo.root))
+    checker = _make_checker(s, plan, llm, budget, executor.repo.root) if freshness else None
+    if checker is not None:
+        executor.reviewer = checker.review
 
     session = SessionLog(executor.repo.root)
     printer = _EventPrinter(console)

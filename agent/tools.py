@@ -26,13 +26,13 @@ import shlex
 import shutil
 import subprocess
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from types import MappingProxyType, NoneType, UnionType
 from typing import Any, Union, get_args, get_origin, get_type_hints
 
 from agent import lookups
-from agent.approval import Approver, PendingAction
+from agent.approval import Approver, CodeChange, PendingAction, Review, Reviewer
 from agent.context import build_repo_map, truncate_output
 from agent.lookups import Tool
 
@@ -251,6 +251,7 @@ def edit_file(repo: Repo, path: str, search: str, replace: str) -> PendingAction
         preview="".join(_ensure_newlines(diff_lines)),
         apply=apply,
         preview_lexer="diff",
+        change=CodeChange(rel, old, new),
     )
 
 
@@ -382,10 +383,13 @@ class ToolExecutor:
         *,
         map_signatures: bool = True,
         truncate: bool = True,
+        reviewer: Reviewer | None = None,
     ) -> None:
-        """map_signatures / truncate are token-saving switches (for benchmarks)."""
+        """map_signatures / truncate are token-saving switches (for benchmarks).
+        reviewer (e.g. the freshness checker) annotates writes before approval."""
         self.repo = Repo(repo_root)
         self.approver = approver
+        self.reviewer = reviewer
         self.truncate = truncate
         self._handlers = dict(HANDLERS)
         if not map_signatures:
@@ -419,8 +423,11 @@ class ToolExecutor:
         # Write tool: outcome is a PendingAction; nothing has happened yet.
         if not isinstance(outcome, PendingAction):
             raise TypeError(f"{tool} must return a PendingAction")
+        outcome = self._review(outcome)
+        note = outcome.review.model_note if outcome.review else ""
         if not self.approver(outcome):
-            return ToolResult(tool, False, lookups.TOOL_DECLINED_MESSAGE, approved=False)
+            return ToolResult(tool, False, _with_note(lookups.TOOL_DECLINED_MESSAGE, note),
+                              approved=False)
         try:
             output = outcome.apply()
         except ToolError as exc:
@@ -430,4 +437,17 @@ class ToolExecutor:
             return ToolResult(tool, False, msg, approved=True)
         if self.truncate and tool in lookups.TRUNCATED_TOOLS:
             output = truncate_output(output, keep_head=lookups.TRUNCATE_KEEP_HEAD_LINES)
-        return ToolResult(tool, True, output, approved=True)
+        return ToolResult(tool, True, _with_note(output, note), approved=True)
+
+    def _review(self, action: PendingAction) -> PendingAction:
+        if self.reviewer is None:
+            return action
+        try:
+            review = self.reviewer(action)
+        except Exception as exc:  # a reviewer bug must not block the edit
+            review = Review(f"[yellow]Review failed: {type(exc).__name__}: {exc}[/yellow]", "")
+        return action if review is None else replace(action, review=review)
+
+
+def _with_note(output: str, note: str) -> str:
+    return f"{output}\n\n{note}" if note else output
