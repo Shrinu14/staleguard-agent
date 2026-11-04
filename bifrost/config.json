@@ -6,7 +6,9 @@
         {
           "name": "ollama-local",
           "value": "",
-          "models": ["*"],
+          "models": [
+            "*"
+          ],
           "weight": 1.0,
           "ollama_key_config": {
             "url": "http://host.docker.internal:11434"
@@ -16,6 +18,30 @@
       "network_config": {
         "allow_private_network": true
       }
+    },
+    "groq": {
+      "keys": [
+        {
+          "name": "groq-1",
+          "value": "env.GROQ_API_KEY",
+          "models": [
+            "*"
+          ],
+          "weight": 1.0
+        }
+      ]
+    },
+    "gemini": {
+      "keys": [
+        {
+          "name": "gemini-1",
+          "value": "env.GEMINI_API_KEY",
+          "models": [
+            "*"
+          ],
+          "weight": 1.0
+        }
+      ]
     }
   },
   "governance": {
@@ -23,12 +49,38 @@
       {
         "id": "vk-default",
         "name": "staleguard-default",
-        "description": "Normal repos: any configured provider (budgets added in Piece 6)",
+        "description": "Normal repos: any configured provider; hard monthly budget below",
         "value": "env.BIFROST_VK_DEFAULT",
         "is_active": true,
         "allow_all_providers": true,
         "provider_configs": [
-          { "provider": "ollama", "allowed_models": ["regex:.*"], "key_ids": ["*"] }
+          {
+            "provider": "ollama",
+            "allowed_models": [
+              "regex:.*"
+            ],
+            "key_ids": [
+              "*"
+            ]
+          },
+          {
+            "provider": "groq",
+            "allowed_models": [
+              "regex:.*"
+            ],
+            "key_ids": [
+              "*"
+            ]
+          },
+          {
+            "provider": "gemini",
+            "allowed_models": [
+              "regex:.*"
+            ],
+            "key_ids": [
+              "*"
+            ]
+          }
         ]
       },
       {
@@ -38,8 +90,24 @@
         "value": "env.BIFROST_VK_LOCAL",
         "is_active": true,
         "provider_configs": [
-          { "provider": "ollama", "allowed_models": ["regex:.*"], "key_ids": ["*"] }
+          {
+            "provider": "ollama",
+            "allowed_models": [
+              "regex:.*"
+            ],
+            "key_ids": [
+              "*"
+            ]
+          }
         ]
+      }
+    ],
+    "budgets": [
+      {
+        "id": "budget-vk-default",
+        "virtual_key_id": "vk-default",
+        "max_limit": 2.0,
+        "reset_duration": "1M"
       }
     ]
   },

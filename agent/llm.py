@@ -32,6 +32,19 @@ class LLMError(RuntimeError):
     """A model call failed in a way the user should see (with a hint)."""
 
 
+class LLMBudgetError(LLMError):
+    """Bifrost refused the call: the virtual key's budget is used up (HTTP 402)."""
+
+
+class LocalOnlyViolation(LLMError):
+    """A local-only client was asked to use a cloud model. Nothing was sent."""
+
+
+def is_local_model(model: str) -> bool:
+    """True for "ollama/..." ids. No provider prefix never counts as local."""
+    return "/" in model and model.split("/", 1)[0] == lookups.LOCAL_PROVIDER
+
+
 @dataclass(frozen=True, slots=True)
 class Usage:
     prompt_tokens: int = 0
@@ -112,7 +125,19 @@ class LLM:
         `fallbacks=None` uses MODEL_FALLBACKS from .env; pass () for none.
         Extra params (tools, temperature, max_tokens, ...) go to the API as-is.
         """
-        chain = list(self.settings.fallbacks if fallbacks is None else fallbacks)
+        if fallbacks is None:
+            chain = list(self.settings.fallbacks)
+            if self.local_only:  # defaults may list cloud models; drop them quietly
+                chain = [m for m in chain if is_local_model(m)]
+        else:
+            chain = list(fallbacks)
+        if self.local_only:
+            # Defence in depth: Bifrost's local-only key would 403 anyway, but
+            # here not even the request body leaves the machine.
+            cloud = [m for m in [model, *chain] if not is_local_model(m)]
+            if cloud:
+                raise LocalOnlyViolation(
+                    f"Local-only mode: refusing to send to {', '.join(cloud)}.")
         extra_body = {lookups.BIFROST_FALLBACKS_FIELD: chain} if chain else None
         try:
             raw = self._client.chat.completions.with_raw_response.create(
@@ -124,6 +149,8 @@ class LLM:
                 "Is it running? Start it with: docker compose up -d"
             ) from exc
         except openai.APIStatusError as exc:
+            if _is_budget_error(exc):
+                raise LLMBudgetError(_describe_status_error(exc)) from exc
             raise LLMError(_describe_status_error(exc)) from exc
 
         completion: ChatCompletion = raw.parse()
@@ -161,13 +188,23 @@ def _usage(completion: ChatCompletion) -> Usage:
     )
 
 
+def _error_body(exc: openai.APIStatusError) -> dict[str, Any]:
+    body = exc.body if isinstance(exc.body, dict) else {}
+    if isinstance(body.get("error"), dict):  # not unwrapped (defensive)
+        body = body["error"]
+    return body
+
+
+def _is_budget_error(exc: openai.APIStatusError) -> bool:
+    return (exc.status_code == lookups.BIFROST_BUDGET_STATUS
+            or _error_body(exc).get("type") == lookups.BIFROST_BUDGET_ERROR_TYPE)
+
+
 def _describe_status_error(exc: openai.APIStatusError) -> str:
     """Turn a Bifrost error response into one readable line with a hint."""
     # The SDK has already unwrapped {"error": {...}}; Bifrost's error object has
     # "message" (summary) and sometimes "error" (low-level cause) strings.
-    body = exc.body if isinstance(exc.body, dict) else {}
-    if isinstance(body.get("error"), dict):  # not unwrapped (defensive)
-        body = body["error"]
+    body = _error_body(exc)
     summary = body.get("message") or exc.message
     cause = body.get("error") if isinstance(body.get("error"), str) else None
     msg = f"Bifrost returned {exc.status_code}: {summary}"
@@ -175,6 +212,8 @@ def _describe_status_error(exc: openai.APIStatusError) -> str:
         msg += f" — {cause}"
     if exc.status_code == 401:
         msg += " (check BIFROST_VK_* in .env matches bifrost/config.json)"
+    elif _is_budget_error(exc):
+        msg += " (the Bifrost virtual-key budget is used up)"
     elif exc.status_code == 403:
         msg += " (this virtual key is not allowed to use that provider/model)"
     return msg

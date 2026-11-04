@@ -10,6 +10,11 @@ One run:
   4. if it answers in plain text: that is the final answer, stop
   5. hard stop after MAX_AGENT_TURNS
 
+Budget (optional BudgetGuard from agent/policy.py): before every call the
+guard estimates its cost and may refuse it -> StopReason.BUDGET. The run
+keeps its history, so the CLI can offer "continue on the local model" and
+call resume() with a local-only LLM: the same conversation goes on for free.
+
 Some local models (e.g. qwen2.5-coder:7b on Ollama) write a tool call as
 JSON text instead of the API's structured `tool_calls` field. We accept that
 too, but only when the JSON names one of our tools — and either way the call
@@ -23,14 +28,15 @@ import json
 import re
 import secrets
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Any
 
 from agent import lookups
-from agent.llm import LLM, LLMError, LLMResult
+from agent.llm import LLM, LLMBudgetError, LLMError, LLMResult
 from agent.lookups import EventType, StopReason, Tool
+from agent.policy import BudgetExceeded, BudgetGuard
 from agent.tools import ToolExecutor
 
 Event = dict[str, Any]
@@ -94,38 +100,70 @@ class AgentLoop:
         on_event: EventSink | None = None,
         include_repo_map: bool = True,
         max_turns: int = lookups.MAX_AGENT_TURNS,
+        fallbacks: Sequence[str] | None = None,  # None = MODEL_FALLBACKS
+        budget: BudgetGuard | None = None,
     ) -> None:
         self.llm = llm
         self.executor = executor
         self.model = model
+        self.fallbacks = fallbacks
+        self.budget = budget
         self.on_event = on_event or (lambda _event: None)
         self.include_repo_map = include_repo_map
         self.max_turns = max_turns
+        # Conversation state, kept so a stopped run can be resumed.
+        self._messages: list[dict[str, Any]] = []
+        self._stats = RunStats()
+        self._last_served: str | None = None
 
     def run(self, task: str) -> RunResult:
-        stats = RunStats()
-        messages: list[dict[str, Any]] = [
+        self._stats = RunStats()
+        self._last_served = None
+        self._messages = [
             {"role": "system", "content": lookups.SYSTEM_PROMPT},
             {"role": "user", "content": self._first_message(task)},
         ]
         self._emit(EventType.RUN_START, task=task, model=self.model,
                    repo=str(self.executor.repo.root), repo_map=self.include_repo_map)
-        last_served: str | None = None
+        return self._drive()
 
-        for turn in range(1, self.max_turns + 1):
+    def resume(self, llm: LLM, *, model: str, fallbacks: Sequence[str] = ()) -> RunResult:
+        """Continue a stopped run (same history and stats) on another LLM/model."""
+        if not self._messages:
+            raise RuntimeError("resume() called before run().")
+        self.llm, self.model, self.fallbacks = llm, model, tuple(fallbacks)
+        self._emit(EventType.POLICY, notice=f"Continuing on {model} (local only).")
+        return self._drive()
+
+    def _drive(self) -> RunResult:
+        messages, stats = self._messages, self._stats
+        tools = list(tool_schemas())
+        while stats.turns < self.max_turns:
+            turn = stats.turns + 1
+            if self.budget is not None:
+                try:
+                    self.budget.check(self.model, self._chain(), messages, tools)
+                except BudgetExceeded as exc:
+                    return self._finish(StopReason.BUDGET, str(exc), stats)
             try:
                 result = self.llm.chat(
-                    messages, model=self.model, tools=list(tool_schemas()),
+                    messages, model=self.model, fallbacks=self.fallbacks, tools=tools,
                     temperature=lookups.AGENT_TEMPERATURE,
                 )
+            except LLMBudgetError as exc:  # Bifrost's hard limit
+                return self._finish(StopReason.BUDGET, str(exc), stats)
             except LLMError as exc:
                 return self._finish(StopReason.ERROR, str(exc), stats)
 
             stats.record(result)
-            if result.served_model != last_served and result.switch_notice:
+            if self.budget is not None:
+                self.budget.record(result)
+                if warning := self.budget.warning():
+                    self._emit(EventType.BUDGET_WARNING, turn=turn, notice=warning)
+            if result.served_model != self._last_served and result.switch_notice:
                 self._emit(EventType.MODEL_SWITCH, turn=turn, notice=result.switch_notice,
                            requested=result.requested_model, served=result.served_model)
-            last_served = result.served_model
+            self._last_served = result.served_model
 
             calls, from_text = extract_tool_calls(result)
             stats.text_tool_calls += len(calls) if from_text else 0
@@ -150,6 +188,11 @@ class AgentLoop:
         )
 
     # ── helpers ──────────────────────────────────────────────
+    def _chain(self) -> tuple[str, ...]:
+        if self.fallbacks is not None:
+            return tuple(self.fallbacks)
+        return getattr(getattr(self.llm, "settings", None), "fallbacks", ())
+
     def _first_message(self, task: str) -> str:
         text = f"Task:\n{task.strip()}"
         if self.include_repo_map:

@@ -76,7 +76,7 @@ freshness checker that catches outdated library/API usage in its own proposed co
 
 ---
 
-## 4. Current state (Pieces 1–5 — DONE)
+## 4. Current state (Pieces 1–6 — DONE)
 
 ```
 staleguard-agent/
@@ -163,6 +163,27 @@ Bifrost facts verified on v2.4.0 (do not re-guess):
   prices must be filled from official pricing pages — never invent prices.
 - Verify with: `uv sync && cp .env.example .env && uv run staleguard doctor`.
 
+Policy (Piece 6, `agent/policy.py`):
+- Confidential: `.agent.toml` `confidential = true` → `plan_models()` forces `MODEL_LOCAL`,
+  ignores `--model` (notice), drops cloud fallbacks, builds `LLM(local_only=True)` with
+  `BIFROST_VK_LOCAL`. `llm.py` raises `LocalOnlyViolation` for any non-`ollama/` model
+  before sending (Bifrost's local VK would also 403 — verified live). Unreadable or
+  non-bool policy → confidential (fail closed). `edit_file` refuses `.agent.toml`.
+- Budget: `BudgetGuard.check()` before every call = tiktoken(messages+tools) +
+  `BUDGET_EST_COMPLETION_TOKENS`, priced at the most expensive model in the chain.
+  Unpriced cloud model → refused. Over budget → `StopReason.BUDGET`; CLI asks
+  "Continue on the local model only?" and `AgentLoop.resume()` keeps the same history.
+  Warning once at `BUDGET_WARN_RATIO`. Bifrost 402 / `budget_exceeded` → `LLMBudgetError`
+  → also `StopReason.BUDGET`.
+- Ledger: sqlite at `~/.staleguard/ledger.sqlite3` (per USER, not per repo, so switching
+  repos doesn't reset the budget), month-to-date UTC, user = `STALEGUARD_USER` or OS login.
+- Bifrost hard limit: `governance.budgets` → `budget-vk-default` $2.00 / `1M` on vk-default;
+  vk-default now lists ollama/groq/gemini (`regex:.*`).
+- Live: confidential copy + `--model openai/gpt-4` + injected task → every turn on Ollama
+  (qwen tried `git switch openai/gpt-4`; the approval gate denied it).
+- Not verified live: the 402 path (needs a priced cloud model; no prices are filled yet).
+- Tavily (Piece 7) must check `RepoPolicy.confidential`: send only library/function names.
+
 ---
 
 ## 5. Target architecture
@@ -239,7 +260,7 @@ differ, the CLI prints a visible notice ("Switched to X — primary unavailable"
 
 **Budget (req. 01-3), enforced twice:**
 - Hard limit: Bifrost virtual key budget.
-- Soft pre-check in `policy.py`: a cost ledger (sqlite in `.staleguard/`) + estimated
+- Soft pre-check in `policy.py`: a cost ledger (sqlite in `~/.staleguard/`) + estimated
   cost of the next call. At `BUDGET_WARN_RATIO` warn; at the limit stop and offer
   "continue on local model only". Handle Bifrost budget errors gracefully.
 

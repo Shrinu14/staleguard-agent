@@ -199,6 +199,10 @@ def edit_file(repo: Repo, path: str, search: str, replace: str) -> PendingAction
     To create a new file, pass search="" and the full content as replace.
     """
     target = repo.resolve(path, must_exist=False)
+    if repo.rel(target) == lookups.POLICY_FILENAME:
+        # The repo policy (confidential mode) is the user's to change, never the agent's.
+        raise ToolError(
+            f"'{lookups.POLICY_FILENAME}' is the repo policy; the agent may not edit it.")
     exists = target.is_file()
     old = _read_text(target, path) if exists else ""
     if exists:

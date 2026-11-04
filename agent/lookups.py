@@ -68,6 +68,15 @@ MODEL_PRICING_PER_MTOK: Final = MappingProxyType({
 
 BUDGET_WARN_RATIO: Final = 0.8  # warn the user at 80% of their budget
 
+# Pre-call budget check: completion size assumed before a call (we can't know
+# it yet). Deliberately generous so the check errs on the safe side.
+BUDGET_EST_COMPLETION_TOKENS: Final = 1024
+
+# Bifrost's hard-limit error (docs.getbifrost.ai/features/governance/virtual-keys):
+# HTTP 402 with {"type": "budget_exceeded"}.
+BIFROST_BUDGET_STATUS: Final = 402
+BIFROST_BUDGET_ERROR_TYPE: Final = "budget_exceeded"
+
 
 # ─────────────────────────────────────────────────────────────
 # Agent tools and approval
@@ -127,7 +136,8 @@ TEXT_TOOL_CALL_FENCE_PATTERN: Final = r"```(?:json)?\s*(.*?)```"
 class StopReason(StrEnum):
     DONE = "done"            # model answered without calling a tool
     MAX_TURNS = "max_turns"  # hit MAX_AGENT_TURNS
-    ERROR = "error"          # the LLM call failed (gateway down, budget, ...)
+    BUDGET = "budget"        # the next call would exceed the user's budget
+    ERROR = "error"          # the LLM call failed (gateway down, ...)
 
 
 class EventType(StrEnum):
@@ -137,6 +147,8 @@ class EventType(StrEnum):
     MODEL_SWITCH = "model_switch"
     TOOL_CALL = "tool_call"
     TOOL_RESULT = "tool_result"
+    POLICY = "policy"                  # confidential mode, ignored --model, ...
+    BUDGET_WARNING = "budget_warning"  # spend crossed BUDGET_WARN_RATIO
     RUN_END = "run_end"
 MAX_READ_LINES: Final = 200          # largest line range read_file returns
 MAX_TOOL_OUTPUT_LINES: Final = 40    # keep only the tail of long outputs
@@ -170,9 +182,14 @@ IGNORED_DIRS: Final = frozenset({
 # Repo policy and local storage
 # ─────────────────────────────────────────────────────────────
 POLICY_FILENAME: Final = ".agent.toml"      # per-repo policy (e.g. confidential = true)
+POLICY_CONFIDENTIAL_KEY: Final = "confidential"
 STATE_DIRNAME: Final = ".staleguard"        # per-repo runtime data folder
 CACHE_DB_FILENAME: Final = "cache.sqlite3"  # verdict cache + cost ledger
 SESSION_LOG_DIRNAME: Final = "sessions"     # JSONL logs, one file per session
+# The spend ledger is per USER, not per repo (a budget must not reset when you
+# switch repos), so it lives in the home directory: ~/.staleguard/ledger.sqlite3
+USER_STATE_DIRNAME: Final = ".staleguard"
+LEDGER_DB_FILENAME: Final = "ledger.sqlite3"
 # Written into .staleguard/ so the folder is never committed, without
 # touching the user's own .gitignore (same trick as .pytest_cache).
 STATE_GITIGNORE_CONTENT: Final = "# created by staleguard\n*\n"

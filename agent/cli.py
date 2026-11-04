@@ -11,14 +11,22 @@ import typer
 from pydantic import ValidationError
 from rich.console import Console
 from rich.panel import Panel
+from rich.prompt import Confirm
 from rich.table import Table
 
 from agent import lookups
 from agent.approval import AllowAll, Approver, ConsoleApprover
 from agent.config import get_settings
 from agent.context import count_tokens
-from agent.llm import LLM, LLMError
+from agent.llm import LLM, LLMError, is_local_model
 from agent.loop import AgentLoop, Event, RunResult
+from agent.policy import (
+    BudgetExceeded,
+    BudgetGuard,
+    PolicyError,
+    load_repo_policy,
+    plan_models,
+)
 from agent.session import SessionLog
 from agent.tools import Repo, ToolError, ToolExecutor, repo_map
 
@@ -52,7 +60,12 @@ def doctor() -> None:
     table.add_row("Bifrost VK (default)", ok if s.bifrost_vk_default else missing)
     table.add_row("Bifrost VK (local-only)", ok if s.bifrost_vk_local else missing)
     table.add_row("Tavily API key", ok if s.tavily_api_key else missing)
-    table.add_row("Budget per user", f"${s.user_budget_usd:.2f}")
+    spent = BudgetGuard.from_settings(s).spent()
+    table.add_row("Budget per user", f"${s.user_budget_usd:.2f} / month  "
+                  f"(user '{s.user_id}', spent ${spent:.4f})")
+    policy = load_repo_policy(Path.cwd())
+    table.add_row("This folder", f"[bold]confidential[/bold] — {policy.reason}"
+                  if policy.confidential else "normal (no confidential policy)")
     table.add_row("Fallback chain", " → ".join(s.fallbacks) or "[dim](none)[/dim]")
 
     unpriced = []
@@ -94,15 +107,21 @@ def ping(
     """Send one tiny request through Bifrost and show who answered."""
     s = get_settings()
     requested = model or s.model_for(lookups.ModelRole.LOCAL)
+    messages = [{"role": "user", "content": lookups.PING_PROMPT}]
+    guard = BudgetGuard.from_settings(s)
     try:
-        result = LLM(s, local_only=local).chat(
-            [{"role": "user", "content": lookups.PING_PROMPT}],
+        llm = LLM(s, local_only=local)
+        if not local:  # the local-only key can only reach free models
+            guard.check(requested, s.fallbacks if fallback is None else fallback, messages)
+        result = llm.chat(
+            messages,
             model=requested,
             fallbacks=fallback,  # None -> MODEL_FALLBACKS from .env
         )
-    except LLMError as exc:
+    except (LLMError, BudgetExceeded) as exc:
         console.print(f"[red]✘ {exc}[/red]")
         raise typer.Exit(1) from exc
+    guard.record(result)
 
     if result.switch_notice:
         console.print(f"[bold yellow]⚠ {result.switch_notice}[/bold yellow]")
@@ -211,10 +230,13 @@ def run(
                       "without asking.[/bold red]")
     try:
         executor = ToolExecutor(repo, approver, map_signatures=signatures, truncate=truncate)
-        llm = LLM(s)
-    except (ToolError, LLMError) as exc:
+        # Policy is decided here, from .agent.toml, before the task text is used.
+        plan = plan_models(s, load_repo_policy(executor.repo.root), requested=model)
+        llm = LLM(s, local_only=plan.local_only)
+    except (ToolError, LLMError, PolicyError) as exc:
         console.print(f"[red]✘ {exc}[/red]")
         raise typer.Exit(2) from exc
+    budget = BudgetGuard.from_settings(s, repo=str(executor.repo.root))
 
     session = SessionLog(executor.repo.root)
     printer = _EventPrinter(console)
@@ -223,14 +245,35 @@ def run(
         session.write(event)
         printer(event)
 
+    for notice in plan.notices:
+        on_event({"type": lookups.EventType.POLICY.value, "notice": notice})
     loop = AgentLoop(
-        llm, executor, model=model or s.model_for(lookups.ModelRole.PLANNER),
+        llm, executor, model=plan.model, fallbacks=plan.fallbacks, budget=budget,
         on_event=on_event, include_repo_map=repo_map_on, max_turns=max_turns,
     )
     result = loop.run(task)
+    if result.reason is lookups.StopReason.BUDGET and _offer_local(result):
+        local = s.model_for(lookups.ModelRole.LOCAL)
+        try:
+            local_llm = LLM(s, local_only=True)
+        except LLMError as exc:
+            console.print(f"[red]✘ {exc}[/red]")
+            raise typer.Exit(2) from exc
+        result = loop.resume(local_llm, model=local,
+                             fallbacks=[m for m in s.fallbacks if is_local_model(m) and m != local])
     _print_run_summary(result, session)
     if result.reason is not lookups.StopReason.DONE:
         raise typer.Exit(1)
+
+
+def _offer_local(result: RunResult) -> bool:
+    """At the budget limit: ask to continue on the free local model (default No)."""
+    console.print(f"[bold red]■ {result.answer}[/bold red]")
+    if not console.is_terminal:
+        console.print("[dim]No terminal to ask; stopping.[/dim]")
+        return False
+    return Confirm.ask("Continue on the local model only (free, nothing leaves "
+                       "this machine)?", default=False, console=console)
 
 
 class _EventPrinter:
@@ -245,6 +288,10 @@ class _EventPrinter:
             self.out.print(f"[bold]▶ {event['task']}[/bold]  [dim]({event['model']})[/dim]")
         elif kind == lookups.EventType.MODEL_SWITCH:
             self.out.print(f"[bold yellow]⚠ {event['notice']}[/bold yellow]")
+        elif kind == lookups.EventType.POLICY:
+            self.out.print(f"[bold magenta]🔒 {event['notice']}[/bold magenta]")
+        elif kind == lookups.EventType.BUDGET_WARNING:
+            self.out.print(f"[bold yellow]$ {event['notice']}[/bold yellow]")
         elif kind == lookups.EventType.LLM_REPLY:
             u = event["usage"]
             self.out.print(f"[dim]turn {event['turn']} · {event['served_model']} · "

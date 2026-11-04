@@ -14,6 +14,7 @@ Every other module does:
     settings = get_settings()
 """
 
+import getpass
 from functools import lru_cache
 
 from pydantic import Field, SecretStr, model_validator
@@ -49,8 +50,9 @@ class Settings(BaseSettings):
     # Comma-separated "provider/model" ids Bifrost tries if the primary fails.
     model_fallbacks: str = ""
 
-    # Budget
+    # Budget (per user, per calendar month UTC)
     user_budget_usd: float = Field(default=1.0, gt=0)
+    staleguard_user: str = ""  # whose budget this is; empty = OS login name
 
     @model_validator(mode="before")
     @classmethod
@@ -71,6 +73,10 @@ class Settings(BaseSettings):
     def fallbacks(self) -> tuple[str, ...]:
         """MODEL_FALLBACKS as a clean tuple, e.g. ("groq/x", "ollama/y")."""
         return tuple(m.strip() for m in self.model_fallbacks.split(",") if m.strip())
+
+    @property
+    def user_id(self) -> str:
+        return self.staleguard_user or getpass.getuser()
 
     def virtual_key(self, *, local_only: bool = False) -> SecretStr | None:
         """The Bifrost virtual key to authenticate with."""
