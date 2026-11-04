@@ -27,6 +27,7 @@ from agent.policy import (
     load_repo_policy,
     plan_models,
 )
+from agent.router import Router
 from agent.session import SessionLog
 from agent.tools import Repo, ToolError, ToolExecutor, repo_map
 
@@ -218,6 +219,22 @@ def run(
     truncate: Annotated[
         bool, typer.Option("--truncate/--no-truncate", help="Truncate long command output.")
     ] = True,
+    routing: Annotated[
+        bool, typer.Option("--routing/--no-routing",
+                           help="Planner model plans, cheap editor model follows through.")
+    ] = True,
+    compaction: Annotated[
+        bool, typer.Option("--compaction/--no-compaction",
+                           help="Summarize older turns once the history gets long.")
+    ] = True,
+    compact_after: Annotated[
+        int, typer.Option("--compact-after", min=1,
+                          help="Compact when the history has more turns than this.")
+    ] = lookups.COMPACT_AFTER_TURNS,
+    stable_prefix: Annotated[
+        bool, typer.Option("--stable-prefix/--no-stable-prefix",
+                           help="Identical prompt prefix every turn (prompt caching).")
+    ] = True,
     max_turns: Annotated[
         int, typer.Option("--max-turns", min=1, help="Hard stop for the loop.")
     ] = lookups.MAX_AGENT_TURNS,
@@ -248,8 +265,10 @@ def run(
     for notice in plan.notices:
         on_event({"type": lookups.EventType.POLICY.value, "notice": notice})
     loop = AgentLoop(
-        llm, executor, model=plan.model, fallbacks=plan.fallbacks, budget=budget,
-        on_event=on_event, include_repo_map=repo_map_on, max_turns=max_turns,
+        llm, executor, router=Router.from_plan(s, plan, enabled=routing),
+        fallbacks=plan.fallbacks, budget=budget, on_event=on_event,
+        include_repo_map=repo_map_on, max_turns=max_turns,
+        compaction=compaction, compact_after=compact_after, stable_prefix=stable_prefix,
     )
     result = loop.run(task)
     if result.reason is lookups.StopReason.BUDGET and _offer_local(result):
@@ -285,17 +304,26 @@ class _EventPrinter:
     def __call__(self, event: Event) -> None:
         kind = event["type"]
         if kind == lookups.EventType.RUN_START:
-            self.out.print(f"[bold]▶ {event['task']}[/bold]  [dim]({event['model']})[/dim]")
+            models = " / ".join(event["models"])
+            self.out.print(f"[bold]▶ {event['task']}[/bold]  [dim]({models})[/dim]")
         elif kind == lookups.EventType.MODEL_SWITCH:
             self.out.print(f"[bold yellow]⚠ {event['notice']}[/bold yellow]")
         elif kind == lookups.EventType.POLICY:
             self.out.print(f"[bold magenta]🔒 {event['notice']}[/bold magenta]")
+        elif kind == lookups.EventType.COMPACTION and event.get("skipped"):
+            self.out.print(f"[dim]⇣ compaction skipped: summary (~{event['tokens_after']:,}) "
+                           f"would not beat the history (~{event['tokens_before']:,})[/dim]")
+        elif kind == lookups.EventType.COMPACTION:
+            self.out.print(f"[bold blue]⇣ compacted {event['turns_summarized']} turns: "
+                           f"~{event['tokens_before']:,} → ~{event['tokens_after']:,} tokens "
+                           f"(summary by {event['summarized_by']})[/bold blue]")
         elif kind == lookups.EventType.BUDGET_WARNING:
             self.out.print(f"[bold yellow]$ {event['notice']}[/bold yellow]")
         elif kind == lookups.EventType.LLM_REPLY:
             u = event["usage"]
-            self.out.print(f"[dim]turn {event['turn']} · {event['served_model']} · "
-                           f"{u['prompt']} in / {u['completion']} out[/dim]")
+            self.out.print(f"[dim]turn {event['turn']} · {event['role']} · "
+                           f"{event['served_model']} · {u['prompt']} in / "
+                           f"{u['completion']} out · {u['cached']} cached[/dim]")
         elif kind == lookups.EventType.TOOL_CALL:
             args = event["arguments"] or {}
             shown = ", ".join(f"{k}={_short(v)}" for k, v in args.items())
@@ -325,7 +353,11 @@ def _print_run_summary(result: RunResult, session: SessionLog) -> None:
     table.add_row("tokens", f"{st.prompt_tokens:,} in / {st.completion_tokens:,} out "
                             f"({st.cached_tokens:,} cached)")
     table.add_row("tool calls", ", ".join(f"{k}×{v}" for k, v in st.tool_calls.items()) or "-")
-    table.add_row("models", ", ".join(st.models) or "-")
+    table.add_row("models", ", ".join(f"{k}×{v}" for k, v in st.models.items()) or "-")
+    table.add_row("roles", ", ".join(f"{k}×{v}" for k, v in st.roles.items()) or "-")
+    if st.compactions:
+        table.add_row("compactions", f"{st.compactions} (~{st.compaction_saved_tokens:,} "
+                                     "tokens removed from history)")
     table.add_row("session log", str(session.path))
     console.print(table)
 

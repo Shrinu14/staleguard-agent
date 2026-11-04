@@ -11,7 +11,15 @@ Context builders: give the model what it needs in as few tokens as possible.
    The model rarely needs more than the end (the failures and the summary),
    so long outputs keep their first line ("exit code N") and their tail.
 
-3. Token estimates (tiktoken). Used only for previews such as
+3. History compaction. A long run resends its whole history every turn.
+   Once it has more than COMPACT_AFTER_TURNS turns, the older turns are
+   replaced by one short summary; the newest turns stay word for word.
+   The system prompt and the first message (task + repo map) are never
+   touched, so the cacheable prompt prefix stays the same. The functions
+   here only cut and render messages; the loop asks the model for the
+   summary (and falls back to mechanical_summary() if that fails).
+
+4. Token estimates (tiktoken). Used only for previews such as
    `staleguard map`; real token counts always come from the API's `usage`.
 
 Each technique can be switched off so the benchmark can measure its effect.
@@ -19,10 +27,12 @@ Each technique can be switched off so the benchmark can measure its effect.
 
 import ast
 import copy
+import json
 from collections.abc import Iterable
+from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from agent import lookups
 
@@ -167,3 +177,100 @@ def _encoder() -> "tiktoken.Encoding":
 def count_tokens(text: str) -> int:
     """Estimated token count (tiktoken). Real counts come from API usage."""
     return len(_encoder().encode(text, disallowed_special=()))
+
+
+def count_message_tokens(messages: Iterable[dict[str, Any]]) -> int:
+    """tiktoken estimate for a list of chat messages (as sent, roughly)."""
+    return count_tokens(json.dumps(list(messages), ensure_ascii=False, default=str))
+
+
+# ─────────────────────────────────────────────────────────────
+# History compaction
+# ─────────────────────────────────────────────────────────────
+Message = dict[str, Any]
+HEAD_MESSAGES = 2  # [system, first user message] — never compacted
+
+
+@dataclass(frozen=True, slots=True)
+class CompactionPlan:
+    head: list[Message]     # system + task message, kept as is
+    old: list[Message]      # to be summarized (may start with an earlier summary)
+    recent: list[Message]   # newest turns, kept as is
+    old_turns: int          # assistant turns being folded into the summary
+
+
+def is_summary(message: Message) -> bool:
+    return (message.get("role") == "user"
+            and str(message.get("content", "")).startswith(lookups.COMPACT_SUMMARY_PREFIX))
+
+
+def summary_message(text: str) -> Message:
+    return {"role": "user", "content": lookups.COMPACT_SUMMARY_PREFIX + text.strip()}
+
+
+def turn_groups(messages: list[Message]) -> list[list[Message]]:
+    """Split a history tail into turns: an assistant message + its tool results.
+    Cutting only between groups keeps every tool result next to its call."""
+    groups: list[list[Message]] = []
+    for msg in messages:
+        if msg.get("role") == "assistant" or not groups:
+            groups.append([msg])
+        else:
+            groups[-1].append(msg)
+    return groups
+
+
+def plan_compaction(
+    messages: list[Message],
+    *,
+    after_turns: int = lookups.COMPACT_AFTER_TURNS,
+    keep_recent: int = lookups.COMPACT_KEEP_RECENT_TURNS,
+    min_old_tokens: int = lookups.COMPACT_MIN_OLD_TOKENS,
+) -> CompactionPlan | None:
+    """What to summarize, or None if the history is still short enough.
+
+    None also when the part to summarize is under min_old_tokens: a summary
+    call costs tokens too, so tiny histories are not worth compacting.
+    """
+    head, rest = messages[:HEAD_MESSAGES], messages[HEAD_MESSAGES:]
+    prior = [rest.pop(0)] if rest and is_summary(rest[0]) else []
+    groups = turn_groups(rest)
+    if len(groups) <= after_turns:
+        return None
+    keep = max(0, min(keep_recent, after_turns))  # never keep more than the threshold
+    cut = len(groups) - keep
+    old = prior + [m for g in groups[:cut] for m in g]
+    if count_message_tokens(old) < min_old_tokens:
+        return None
+    recent = [m for g in groups[cut:] for m in g]
+    return CompactionPlan(head, old, recent, cut)
+
+
+def render_transcript(messages: list[Message], *, result_chars: int) -> str:
+    """Plain-text view of messages for summarizing: calls in full, results clipped."""
+    lines: list[str] = []
+    for msg in messages:
+        role = msg.get("role")
+        if is_summary(msg):
+            earlier = msg["content"][len(lookups.COMPACT_SUMMARY_PREFIX):]
+            lines.append("EARLIER SUMMARY:\n" + earlier)
+        elif role == "assistant":
+            if text := (msg.get("content") or "").strip():
+                lines.append(f"ASSISTANT: {_preview(text, result_chars)}")
+            for tc in msg.get("tool_calls") or []:
+                fn = tc.get("function", {})
+                lines.append(f"CALL {fn.get('name')}({fn.get('arguments', '')})")
+        elif role == "tool":
+            lines.append(f"RESULT: {_preview(str(msg.get('content', '')), result_chars)}")
+    return "\n".join(lines)
+
+
+def mechanical_summary(messages: list[Message]) -> str:
+    """No-LLM fallback: one line per call and per result."""
+    return render_transcript(messages, result_chars=lookups.COMPACT_FALLBACK_RESULT_CHARS)
+
+
+def _preview(text: str, limit: int) -> str:
+    flat = " ⏎ ".join(line.strip() for line in text.splitlines() if line.strip())
+    return flat if len(flat) <= limit else flat[:limit] + " …"
+

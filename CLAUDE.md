@@ -76,7 +76,7 @@ freshness checker that catches outdated library/API usage in its own proposed co
 
 ---
 
-## 4. Current state (Pieces 1–6 — DONE)
+## 4. Current state (Pieces 1–7 — DONE)
 
 ```
 staleguard-agent/
@@ -182,7 +182,29 @@ Policy (Piece 6, `agent/policy.py`):
 - Live: confidential copy + `--model openai/gpt-4` + injected task → every turn on Ollama
   (qwen tried `git switch openai/gpt-4`; the approval gate denied it).
 - Not verified live: the 402 path (needs a priced cloud model; no prices are filled yet).
-- Tavily (Piece 7) must check `RepoPolicy.confidential`: send only library/function names.
+- Tavily (Piece 8) must check `RepoPolicy.confidential`: send only library/function names.
+
+Routing + compaction (Piece 7):
+- `agent/router.py`: deterministic, no LLM. Planner = turn 1, after a failed/declined
+  tool, after a compaction; editor = every other (follow-through) turn.
+  `Router.from_plan` → in confidential mode both roles are the local model.
+  `--model` sets the planner; editor = `MODEL_EDITOR`.
+- Compaction (`context.plan_compaction` + `AgentLoop._maybe_compact`): when the live
+  history has > `COMPACT_AFTER_TURNS` turns, older turn groups (assistant + its tool
+  results, never split) become one `COMPACT_SUMMARY_PREFIX` user message written by the
+  editor model (`COMPACT_SYSTEM_PROMPT`, max `COMPACT_SUMMARY_MAX_TOKENS`). Head
+  (system + task/repo map) is never touched → cacheable prefix survives. Guards:
+  keep_recent capped at the threshold; skip if old part < `COMPACT_MIN_OLD_TOKENS`;
+  discard a summary that doesn't shrink the history; LLM/budget failure → mechanical
+  summary. A previous summary is folded into the next one. Summary calls count in
+  token stats and the budget, not in turns.
+- `--no-stable-prefix` (baseline only) appends a per-turn marker to the system prompt.
+- Flags: `--routing`, `--compaction`, `--compact-after N`, `--stable-prefix` (+ existing
+  `--repo-map`, `--signatures`, `--truncate`). Diff edits are always on (no flag).
+- Live (all qwen, so routing is a no-op until MODEL_EDITOR differs): stable prefix
+  1,652 cached vs 371 without; compaction ~5,143 → ~2,017 tokens on a real-size repo,
+  but qwen 7B's final answer lost detail — benchmark must measure success, not just tokens.
+  First live run caught 2 bugs (negative cut, summary bigger than history) → guards above.
 
 ---
 

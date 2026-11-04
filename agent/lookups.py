@@ -148,11 +148,13 @@ class EventType(StrEnum):
     TOOL_CALL = "tool_call"
     TOOL_RESULT = "tool_result"
     POLICY = "policy"                  # confidential mode, ignored --model, ...
+    COMPACTION = "compaction"          # older turns replaced by a summary
     BUDGET_WARNING = "budget_warning"  # spend crossed BUDGET_WARN_RATIO
     RUN_END = "run_end"
 MAX_READ_LINES: Final = 200          # largest line range read_file returns
 MAX_TOOL_OUTPUT_LINES: Final = 40    # keep only the tail of long outputs
-COMPACT_AFTER_TURNS: Final = 8       # summarize history after this many turns
+COMPACT_AFTER_TURNS: Final = 8       # compact when the live history has more turns than this
+COMPACT_KEEP_RECENT_TURNS: Final = 3 # newest turns kept word for word after compaction
 SEARCH_MAX_RESULTS: Final = 50
 MAX_TOOL_LINE_CHARS: Final = 300     # cut single huge lines (minified, base64...)
 
@@ -308,3 +310,38 @@ TOOL_SCHEMAS_JSON: Final = """\
       "args": {"type": "array", "items": {"type": "string"}, "description": "Extra arguments."}},
      "required": ["action"]}}}
 ]"""
+
+
+# ─────────────────────────────────────────────────────────────
+# Routing (agent/router.py)
+# ─────────────────────────────────────────────────────────────
+class RouteReason(StrEnum):
+    FIRST_TURN = "first turn: plan the task"
+    RECOVER = "last tool failed or was declined: rethink"
+    AFTER_COMPACTION = "history was just compacted: re-orient"
+    FOLLOW_THROUGH = "follow-through step"
+    ROUTING_OFF = "routing off"
+
+
+# ─────────────────────────────────────────────────────────────
+# History compaction (agent/context.py + agent/loop.py)
+# ─────────────────────────────────────────────────────────────
+COMPACT_SUMMARY_MAX_TOKENS: Final = 400     # cap on the summary the cheap model writes
+COMPACT_MIN_OLD_TOKENS: Final = 600         # don't spend a summary call on less than this
+COMPACT_RESULT_PREVIEW_CHARS: Final = 400   # per tool result, in the text sent for summarizing
+COMPACT_FALLBACK_RESULT_CHARS: Final = 120  # per tool result, in the no-LLM summary
+COMPACT_SUMMARY_PREFIX: Final = "Summary of earlier steps (older turns were compacted to save tokens):\n"
+COMPACT_SYSTEM_PROMPT: Final = """\
+You compress the history of a coding agent so it can continue its task with fewer tokens.
+Write terse bullet points. Keep exactly:
+- files read and changed, with line numbers;
+- each edit made (what was replaced by what, briefly);
+- commands run and their outcome (pass/fail and the key error line);
+- actions the user declined;
+- what still remains to do.
+Do not invent anything that is not in the transcript. No preamble."""
+
+# --no-stable-prefix (benchmark baseline only): a per-turn marker appended to the
+# system prompt, so the prompt prefix changes every turn and provider caching misses.
+UNSTABLE_PREFIX_TEMPLATE: Final = "\n\n[turn {turn} · {nonce}]"
+

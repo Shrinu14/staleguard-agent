@@ -94,6 +94,17 @@ only?"*. A warning prints at 80%. Spend is kept in `~/.staleguard/ledger.sqlite3
 virtual key and answers 402 when it is used up. Cloud models need a price in
 `MODEL_PRICING_PER_MTOK`; an unpriced cloud model is refused, never guessed.
 
+## Fewer tokens: routing, compaction, stable prefix
+
+| Flag (default on) | What it does |
+|---|---|
+| `--routing` | The planner model (`MODEL_PLANNER` or `--model`) handles turn 1, failures and re-orientation; the cheap `MODEL_EDITOR` handles the follow-through turns. In confidential repos both are the local model. |
+| `--compaction` / `--compact-after N` | When the history has more than N turns (default 8), older turns become one short summary written by the editor model. The system prompt and task message are never touched, so prompt caching keeps working. A summary that wouldn't save tokens is thrown away. |
+| `--stable-prefix` | Same system prompt and tool list every turn, so the provider can serve them from its prompt cache. `--no-stable-prefix` exists only as a benchmark baseline. |
+
+Measured on Ollama (`mini_calc`, two turns): **1,652 cached prompt tokens with a stable
+prefix vs 371 without.**
+
 ## Fewer tokens: repo map instead of whole files
 
 The agent first sees a compact outline of the repo, built with Python's `ast`
@@ -124,6 +135,7 @@ tiktoken estimate). Long command output (e.g. pytest) keeps the exit code and th
 | `agent/context.py` | Token savers: `ast` repo map with line ranges, output truncation |
 | `agent/approval.py` | The approval gate: write actions are previewed and need a `[y/N]` |
 | `agent/loop.py` | The hand-written tool-calling loop (no agent framework) |
+| `agent/router.py` | Planner/editor model routing by turn |
 | `agent/policy.py` | Confidential mode (local-only) and the budget ledger + pre-call check |
 | `agent/session.py` | JSONL log of every run in `<repo>/.staleguard/sessions/` |
 | `agent/cli.py` | Command-line entry point (`doctor`, `ping`, `tool`, `map`, `run`) |
