@@ -1,0 +1,34 @@
+# Bifrost LLM gateway. Ollama is NOT in Docker: it runs natively on the Mac
+# so it can use the Apple GPU. Bifrost reaches it at host.docker.internal.
+#
+#   docker compose up -d      # start
+#   docker compose logs -f    # follow logs
+#   docker compose down       # stop
+#
+# Web UI: http://localhost:8080
+
+services:
+  bifrost:
+    image: maximhq/bifrost:v2.4.0  # pinned; see docs.getbifrost.ai for newer releases
+    container_name: staleguard-bifrost
+    ports:
+      - "127.0.0.1:8080:8080"  # only reachable from this machine
+    environment:
+      # Provider keys are read by Bifrost only (config.json uses "env.NAME").
+      # Compose fills these from .env; empty values are fine for Ollama-only use.
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      # Virtual-key values, referenced from config.json as env.BIFROST_VK_*.
+      BIFROST_VK_DEFAULT: ${BIFROST_VK_DEFAULT:?set BIFROST_VK_DEFAULT in .env}
+      BIFROST_VK_LOCAL: ${BIFROST_VK_LOCAL:?set BIFROST_VK_LOCAL in .env}
+      # Needed once, to create the dashboard admin account (UI > Config > Security).
+      BIFROST_SETUP_TOKEN: ${BIFROST_SETUP_TOKEN:-}
+      LOG_STYLE: pretty
+      LOG_LEVEL: ${BIFROST_LOG_LEVEL:-info}
+    volumes:
+      # ./bifrost is Bifrost's app dir: config.json (versioned) is read at
+      # startup; config.db / logs.db are written next to it (git-ignored).
+      - ./bifrost:/app/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped

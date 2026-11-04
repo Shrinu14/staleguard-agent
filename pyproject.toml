@@ -1,0 +1,40 @@
+[project]
+name = "staleguard-agent"
+version = "0.1.0"
+description = "Token-efficient coding agent with live API-freshness verification (Bifrost + Tavily)"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "typer>=0.12",
+    "rich>=13",
+    "openai>=1.0",
+    "tavily-python",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "python-dotenv>=1.0",
+    "tenacity>=8",
+    "tiktoken",
+    "packaging",
+]
+
+[project.scripts]
+# After `uv sync`, the command `staleguard` runs agent/cli.py's Typer app.
+staleguard = "agent.cli:app"
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff"]
+bench = ["pandas", "plotly", "jinja2"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["agent", "freshness"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]

@@ -1,0 +1,23 @@
+# Secrets
+.env
+
+# Python / uv
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+
+# Runtime data written by the agent (cache, cost ledger, session logs)
+.staleguard/
+
+# Bifrost runtime data (only bifrost/config.json is versioned)
+bifrost/*
+!bifrost/config.json
+
+# OS / editors
+.DS_Store
+.vscode/
+.idea/

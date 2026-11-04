@@ -1,0 +1,53 @@
+{
+  "$schema": "https://www.getbifrost.ai/schema",
+  "providers": {
+    "ollama": {
+      "keys": [
+        {
+          "name": "ollama-local",
+          "value": "",
+          "models": ["*"],
+          "weight": 1.0,
+          "ollama_key_config": {
+            "url": "http://host.docker.internal:11434"
+          }
+        }
+      ],
+      "network_config": {
+        "allow_private_network": true
+      }
+    }
+  },
+  "governance": {
+    "virtual_keys": [
+      {
+        "id": "vk-default",
+        "name": "staleguard-default",
+        "description": "Normal repos: any configured provider (budgets added in Piece 6)",
+        "value": "env.BIFROST_VK_DEFAULT",
+        "is_active": true,
+        "allow_all_providers": true,
+        "provider_configs": [
+          { "provider": "ollama", "allowed_models": ["regex:.*"], "key_ids": ["*"] }
+        ]
+      },
+      {
+        "id": "vk-local",
+        "name": "staleguard-local-only",
+        "description": "Confidential repos: Ollama only, enforced by the gateway",
+        "value": "env.BIFROST_VK_LOCAL",
+        "is_active": true,
+        "provider_configs": [
+          { "provider": "ollama", "allowed_models": ["regex:.*"], "key_ids": ["*"] }
+        ]
+      }
+    ]
+  },
+  "config_store": {
+    "enabled": true,
+    "type": "sqlite",
+    "config": {
+      "path": "/app/data/config.db"
+    }
+  }
+}
