@@ -93,7 +93,8 @@ def test_env_example_is_readable(repo: Path) -> None:
 
 def test_repo_map_hides_secrets_and_ignored_dirs(repo: Path) -> None:
     result, _ = run(repo, "repo_map")
-    assert result.output.splitlines() == [".env.example", "app.py", "pkg/util.py"]
+    file_lines = [ln for ln in result.output.splitlines() if not ln.startswith((" ", "#"))]
+    assert file_lines == [".env.example", "app.py", "pkg/util.py"]
 
 
 # ── read_file ────────────────────────────────────────────────

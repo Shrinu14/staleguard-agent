@@ -119,6 +119,24 @@ MAX_READ_LINES: Final = 200          # largest line range read_file returns
 MAX_TOOL_OUTPUT_LINES: Final = 40    # keep only the tail of long outputs
 COMPACT_AFTER_TURNS: Final = 8       # summarize history after this many turns
 SEARCH_MAX_RESULTS: Final = 50
+MAX_TOOL_LINE_CHARS: Final = 300     # cut single huge lines (minified, base64...)
+
+# Tools whose output can be long and unpredictable, so it is truncated.
+# (read_file and search already cap themselves; repo_map has its own cap.)
+TRUNCATED_TOOLS: Final = frozenset({Tool.RUN_COMMAND, Tool.GIT})
+TRUNCATE_KEEP_HEAD_LINES: Final = 1  # keep the "exit code N" line
+
+# Repo map (agent/context.py)
+REPO_MAP_LEGEND: Final = (
+    "# Repo map: files; Python files list classes/functions with [line ranges]."
+)
+REPO_MAP_MAX_LINES: Final = 400      # whole map cap; beyond this, use search
+MAP_MAX_SIGNATURE_CHARS: Final = 160  # one signature line, cut with "…"
+MAP_MAX_CONSTANTS: Final = 12        # UPPER_CASE names listed per module
+PYTHON_SUFFIXES: Final = frozenset({".py", ".pyi"})
+
+# tiktoken encoding for pre-call estimates only. Real counts come from `usage`.
+TOKENIZER_ENCODING: Final = "o200k_base"
 
 IGNORED_DIRS: Final = frozenset({
     ".git", ".venv", "venv", "env", "__pycache__", "node_modules",

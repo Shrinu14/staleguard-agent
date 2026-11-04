@@ -15,8 +15,9 @@ from rich.table import Table
 from agent import lookups
 from agent.approval import ConsoleApprover
 from agent.config import get_settings
+from agent.context import count_tokens
 from agent.llm import LLM, LLMError
-from agent.tools import ToolError, ToolExecutor
+from agent.tools import Repo, ToolError, ToolExecutor, repo_map
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 console = Console()
@@ -141,6 +142,40 @@ def tool_cmd(
     if not result.ok:
         raise typer.Exit(1)
 
+
+@app.command("map")
+def map_cmd(
+    repo: Annotated[Path, typer.Option("--repo", "-r", help="Repository root.")] = Path("."),
+    quiet: Annotated[bool, typer.Option("--quiet", "-q", help="Only show the numbers.")] = False,
+) -> None:
+    """Show the repo map and its token cost versus reading the Python sources whole."""
+    try:
+        r = Repo(repo)
+    except ToolError as exc:
+        console.print(f"[red]✘ {exc}[/red]")
+        raise typer.Exit(2) from exc
+    sources = [f for f in r.iter_files() if f.suffix in lookups.PYTHON_SUFFIXES]
+    repo_map_text = repo_map(r)
+    source_text = "\n".join(
+        f.read_bytes().decode(lookups.FILE_ENCODING, "replace") for f in sources
+    )
+
+    if not quiet:
+        console.print(repo_map_text, markup=False, highlight=False)
+    map_tokens, source_tokens = count_tokens(repo_map_text), count_tokens(source_text)
+    saved = 1 - map_tokens / source_tokens if source_tokens else 0.0
+    table = Table(title="Repo map vs. reading every Python file (tiktoken estimate)")
+    for col in ("Python files", "Repo map", "Python sources", "Saved"):
+        table.add_column(col, justify="right")
+    table.add_row(
+        str(len(sources)), f"{map_tokens:,} tok", f"{source_tokens:,} tok", f"{saved:.0%}"
+    )
+    console.print(table)
+    if "more files not shown" in repo_map_text:
+        console.print(
+            f"[yellow]Map hit its {lookups.REPO_MAP_MAX_LINES}-line cap; some files are "
+            "summarized as a count, so 'Saved' is overstated for this repo.[/yellow]"
+        )
 
 if __name__ == "__main__":
     app()

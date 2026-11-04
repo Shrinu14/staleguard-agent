@@ -76,7 +76,7 @@ freshness checker that catches outdated library/API usage in its own proposed co
 
 ---
 
-## 4. Current state (Pieces 1–3 — DONE)
+## 4. Current state (Pieces 1–4 — DONE)
 
 ```
 staleguard-agent/
@@ -94,8 +94,9 @@ staleguard-agent/
 │   ├── llm.py          # single OpenAI client -> Bifrost; usage + fallback detection
 │   ├── approval.py     # PendingAction + Approver (ConsoleApprover [y/N], AllowAll, DenyAll)
 │   ├── tools.py        # Repo (path safety), 6 tools, ToolExecutor = the approval gate
-│   └── cli.py          # Typer app; `doctor`, `ping`, `tool NAME '{json}'`
-├── tests/              # test_llm.py (mocked Bifrost), test_tools.py (tmp repos)
+│   ├── context.py      # ast repo map, output truncation, tiktoken estimates
+│   └── cli.py          # Typer app; `doctor`, `ping`, `tool NAME '{json}'`, `map`
+├── tests/              # test_llm.py, test_tools.py, test_context.py
 └── freshness/__init__.py
 ```
 
@@ -107,7 +108,17 @@ Tool/approval design (Piece 3):
   searched or edited; `IGNORED_DIRS` are skipped. Edits re-check the file at apply time.
 - `git` only allows `GIT_ALLOWED_ACTIONS` (no push/pull/reset/rebase/clean/config).
 - `search` uses ripgrep if a real `rg` binary is on PATH, else a pure-Python fallback.
-- Not yet: repo_map signatures and output truncation (Piece 4); tool JSON schemas (Piece 5).
+- Not yet: tool JSON schemas for the model (Piece 5).
+
+Context design (Piece 4):
+- `repo_map` = file list + per-Python-file outline from `ast`: UPPER_CASE consts,
+  classes, functions, methods with args and `[Lstart-end]` ranges for read_file.
+  `Annotated[T, ...]` is shown as `T`. Capped at `REPO_MAP_MAX_LINES`.
+- `run_command`/`git` output: keep line 1 ("exit code N") + tail, total
+  `MAX_TOOL_OUTPUT_LINES`; lines cut at `MAX_TOOL_LINE_CHARS`.
+- Ablation switches: `ToolExecutor(..., map_signatures=bool, truncate=bool)`.
+- Measured with `staleguard map`: this repo 3,053 vs 17,276 tokens of Python (82% saved).
+  Estimates only (tiktoken); benchmark numbers must come from API `usage`.
 
 Bifrost facts verified on v2.4.0 (do not re-guess):
 - Governance is on by default: EVERY request needs a virtual key (`x-bf-vk`), else 401.

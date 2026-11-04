@@ -33,6 +33,7 @@ from typing import Any
 
 from agent import lookups
 from agent.approval import Approver, PendingAction
+from agent.context import build_repo_map, truncate_output
 from agent.lookups import Tool
 
 
@@ -105,9 +106,13 @@ class Repo:
 # Read tools (no approval)
 # ─────────────────────────────────────────────────────────────
 def repo_map(repo: Repo) -> str:
-    """List the repo's files. (Piece 4 adds function/class signatures.)"""
-    files = [repo.rel(p) for p in repo.iter_files()]
-    return "\n".join(files) if files else "(empty repository)"
+    """Files plus Python classes/functions with line ranges (see context.py)."""
+    return build_repo_map(repo.root, repo.iter_files(), signatures=True)
+
+
+def repo_file_list(repo: Repo) -> str:
+    """Plain file list: the repo_map tool when signatures are switched off."""
+    return build_repo_map(repo.root, repo.iter_files(), signatures=False)
 
 
 def read_file(repo: Repo, path: str, start: int = 1, end: int | None = None) -> str:
@@ -322,9 +327,21 @@ HANDLERS: MappingProxyType[Tool, Callable[..., Any]] = MappingProxyType({
 class ToolExecutor:
     """Runs model-requested tool calls; write tools only after approval."""
 
-    def __init__(self, repo_root: Path | str, approver: Approver) -> None:
+    def __init__(
+        self,
+        repo_root: Path | str,
+        approver: Approver,
+        *,
+        map_signatures: bool = True,
+        truncate: bool = True,
+    ) -> None:
+        """map_signatures / truncate are token-saving switches (for benchmarks)."""
         self.repo = Repo(repo_root)
         self.approver = approver
+        self.truncate = truncate
+        self._handlers = dict(HANDLERS)
+        if not map_signatures:
+            self._handlers[Tool.REPO_MAP] = repo_file_list
 
     def execute(self, name: str, arguments: dict[str, Any] | None = None) -> ToolResult:
         try:
@@ -333,7 +350,7 @@ class ToolExecutor:
             known = ", ".join(t.value for t in Tool)
             return ToolResult(name, False, f"Unknown tool '{name}'. Available: {known}.")
 
-        handler = HANDLERS[tool]
+        handler = self._handlers[tool]
         args = arguments or {}
         try:
             inspect.signature(handler).bind(self.repo, **args)
@@ -354,6 +371,9 @@ class ToolExecutor:
         if not self.approver(outcome):
             return ToolResult(tool, False, lookups.TOOL_DECLINED_MESSAGE, approved=False)
         try:
-            return ToolResult(tool, True, outcome.apply(), approved=True)
+            output = outcome.apply()
         except ToolError as exc:
             return ToolResult(tool, False, str(exc), approved=True)
+        if self.truncate and tool in lookups.TRUNCATED_TOOLS:
+            output = truncate_output(output, keep_head=lookups.TRUNCATE_KEEP_HEAD_LINES)
+        return ToolResult(tool, True, output, approved=True)

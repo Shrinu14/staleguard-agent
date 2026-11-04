@@ -62,6 +62,25 @@ uv run staleguard tool read_file '{"path": "agent/llm.py", "start": 1, "end": 20
 uv run staleguard tool edit_file '{"path": "README.md", "search": "# StaleGuard Agent", "replace": "# StaleGuard"}'
 ```
 
+## Fewer tokens: repo map instead of whole files
+
+The agent first sees a compact outline of the repo, built with Python's `ast`
+(no LLM), then reads only the line ranges it needs:
+
+```text
+agent/llm.py
+  class LLM  [L86-130]
+    def chat(self, messages: Sequence[dict[str, Any]], *, model: str, fallbacks: Iterable[str] | None=None, **params: Any) -> LLMResult  [L102-130]
+```
+
+```bash
+uv run staleguard map        # print the map + token comparison
+```
+
+On this repo the map is ~3k tokens versus ~17k for reading every Python file (82% less,
+tiktoken estimate). Long command output (e.g. pytest) keeps the exit code and the last
+40 lines.
+
 ## Project layout
 
 | Path | Purpose |
@@ -70,8 +89,9 @@ uv run staleguard tool edit_file '{"path": "README.md", "search": "# StaleGuard 
 | `agent/config.py` | Loads `.env` once; the only place secrets are read |
 | `agent/llm.py` | The single LLM client (OpenAI SDK → Bifrost); usage + fallback detection |
 | `agent/tools.py` | Repo tools (`repo_map`, `read_file`, `search`, `edit_file`, `run_command`, `git`) and the executor that enforces approval |
+| `agent/context.py` | Token savers: `ast` repo map with line ranges, output truncation |
 | `agent/approval.py` | The approval gate: write actions are previewed and need a `[y/N]` |
-| `agent/cli.py` | Command-line entry point (`doctor`, `ping`, `tool`) |
+| `agent/cli.py` | Command-line entry point (`doctor`, `ping`, `tool`, `map`) |
 | `bifrost/config.json` | Gateway config: providers and virtual keys |
 | `docker-compose.yml` | Runs Bifrost |
 | `freshness/` | API-freshness checker (Tavily) |
