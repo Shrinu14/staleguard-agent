@@ -76,7 +76,7 @@ freshness checker that catches outdated library/API usage in its own proposed co
 
 ---
 
-## 4. Current state (Pieces 1–2 — DONE)
+## 4. Current state (Pieces 1–3 — DONE)
 
 ```
 staleguard-agent/
@@ -92,10 +92,22 @@ staleguard-agent/
 │   ├── lookups.py      # all constants (ModelRole, Tool, FreshnessStatus, limits, maps)
 │   ├── config.py       # Settings (pydantic-settings), get_settings()
 │   ├── llm.py          # single OpenAI client -> Bifrost; usage + fallback detection
-│   └── cli.py          # Typer app; `staleguard doctor`, `staleguard ping`
-├── tests/test_llm.py   # httpx.MockTransport plays Bifrost; no network needed
+│   ├── approval.py     # PendingAction + Approver (ConsoleApprover [y/N], AllowAll, DenyAll)
+│   ├── tools.py        # Repo (path safety), 6 tools, ToolExecutor = the approval gate
+│   └── cli.py          # Typer app; `doctor`, `ping`, `tool NAME '{json}'`
+├── tests/              # test_llm.py (mocked Bifrost), test_tools.py (tmp repos)
 └── freshness/__init__.py
 ```
+
+Tool/approval design (Piece 3):
+- Write tools return a `PendingAction(summary, preview, apply)`; `ToolExecutor` checks
+  `TOOLS_REQUIRE_APPROVAL` and calls `apply()` only after the Approver says yes.
+  Unknown args (e.g. an injected `"approved": true`) are rejected before anything runs.
+- Paths are confined to the repo; `SECRET_FILE_PATTERNS` (.env, *.pem, ...) are never read,
+  searched or edited; `IGNORED_DIRS` are skipped. Edits re-check the file at apply time.
+- `git` only allows `GIT_ALLOWED_ACTIONS` (no push/pull/reset/rebase/clean/config).
+- `search` uses ripgrep if a real `rg` binary is on PATH, else a pure-Python fallback.
+- Not yet: repo_map signatures and output truncation (Piece 4); tool JSON schemas (Piece 5).
 
 Bifrost facts verified on v2.4.0 (do not re-guess):
 - Governance is on by default: EVERY request needs a virtual key (`x-bf-vk`), else 401.

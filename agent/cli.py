@@ -3,6 +3,8 @@ Command-line entry point. `staleguard <command>` maps to functions here.
 Commands for run / verify / bench are added in later pieces.
 """
 
+import json
+from pathlib import Path
 from typing import Annotated
 
 import typer
@@ -11,8 +13,10 @@ from rich.console import Console
 from rich.table import Table
 
 from agent import lookups
+from agent.approval import ConsoleApprover
 from agent.config import get_settings
 from agent.llm import LLM, LLMError
+from agent.tools import ToolError, ToolExecutor
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 console = Console()
@@ -104,6 +108,38 @@ def ping(
         f"  tokens: {u.prompt_tokens} in / {u.completion_tokens} out"
         f" ({u.cached_tokens} cached)  •  key: {'local-only' if local else 'default'}"
     )
+
+
+@app.command("tool")
+def tool_cmd(
+    name: Annotated[str, typer.Argument(help="Tool name, e.g. read_file or edit_file.")],
+    arguments: Annotated[
+        str, typer.Argument(help='Tool arguments as JSON, e.g. \'{"path": "README.md"}\'.')
+    ] = "{}",
+    repo: Annotated[Path, typer.Option("--repo", "-r", help="Repository root.")] = Path("."),
+) -> None:
+    """Call one agent tool by hand, through the same approval gate the agent uses."""
+    try:
+        parsed = json.loads(arguments)
+    except json.JSONDecodeError as exc:
+        console.print(f"[red]✘ arguments must be JSON: {exc}[/red]")
+        raise typer.Exit(2) from exc
+    if not isinstance(parsed, dict):
+        console.print("[red]✘ arguments must be a JSON object.[/red]")
+        raise typer.Exit(2)
+    try:
+        executor = ToolExecutor(repo, ConsoleApprover(console))
+    except ToolError as exc:
+        console.print(f"[red]✘ {exc}[/red]")
+        raise typer.Exit(2) from exc
+
+    result = executor.execute(name, parsed)
+    style = "green" if result.ok else "red"
+    gate = {None: "no approval needed", True: "approved", False: "declined"}[result.approved]
+    console.print(f"[{style}]{'✔' if result.ok else '✘'} {result.tool}[/{style}] ({gate})")
+    console.print(result.output, markup=False, highlight=False)
+    if not result.ok:
+        raise typer.Exit(1)
 
 
 if __name__ == "__main__":

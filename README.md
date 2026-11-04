@@ -50,6 +50,18 @@ $ uv run staleguard ping -m ollama/no-such-model:1b -f ollama/qwen2.5-coder:7b
   tokens: 36 in / 2 out (35 cached)  •  key: default
 ```
 
+## Safety: reads are free, writes need approval
+
+The model can only *request* a write. `edit_file`, `run_command` and `git` return a
+preview (a colored diff, or the exact command) and nothing happens until you answer `y`.
+The rule lives in Python (`TOOLS_REQUIRE_APPROVAL`), so no prompt can bypass it.
+Secret files such as `.env` can never be read, so they never reach a model.
+
+```bash
+uv run staleguard tool read_file '{"path": "agent/llm.py", "start": 1, "end": 20}'
+uv run staleguard tool edit_file '{"path": "README.md", "search": "# StaleGuard Agent", "replace": "# StaleGuard"}'
+```
+
 ## Project layout
 
 | Path | Purpose |
@@ -57,7 +69,9 @@ $ uv run staleguard ping -m ollama/no-such-model:1b -f ollama/qwen2.5-coder:7b
 | `agent/lookups.py` | Every static constant and mapping, in one place |
 | `agent/config.py` | Loads `.env` once; the only place secrets are read |
 | `agent/llm.py` | The single LLM client (OpenAI SDK → Bifrost); usage + fallback detection |
-| `agent/cli.py` | Command-line entry point (`doctor`, `ping`) |
+| `agent/tools.py` | Repo tools (`repo_map`, `read_file`, `search`, `edit_file`, `run_command`, `git`) and the executor that enforces approval |
+| `agent/approval.py` | The approval gate: write actions are previewed and need a `[y/N]` |
+| `agent/cli.py` | Command-line entry point (`doctor`, `ping`, `tool`) |
 | `bifrost/config.json` | Gateway config: providers and virtual keys |
 | `docker-compose.yml` | Runs Bifrost |
 | `freshness/` | API-freshness checker (Tavily) |

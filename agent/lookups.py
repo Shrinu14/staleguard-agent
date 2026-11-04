@@ -84,6 +84,32 @@ class Tool(StrEnum):
 TOOLS_AUTO_APPROVED: Final = frozenset({Tool.REPO_MAP, Tool.READ_FILE, Tool.SEARCH})
 TOOLS_REQUIRE_APPROVAL: Final = frozenset({Tool.EDIT_FILE, Tool.RUN_COMMAND, Tool.GIT})
 
+# Files the agent may never read or edit: their contents would be sent to
+# the model. Matched (fnmatch) against the file name, case-insensitive.
+SECRET_FILE_PATTERNS: Final = (
+    ".env", ".env.*", "*.pem", "*.key", "*.p12", "*.pfx",
+    "id_rsa*", "id_ed25519*", ".netrc", ".pypirc", "credentials*",
+)
+# Safe templates that match the patterns above but contain no secrets.
+SECRET_FILE_EXCEPTIONS: Final = frozenset({".env.example", ".env.sample", ".env.template"})
+
+# git subcommands the agent may request (each still needs approval).
+# Deliberately excluded: push, pull, fetch, remote, reset, rebase, clean, config.
+GIT_ALLOWED_ACTIONS: Final = frozenset({
+    "status", "diff", "log", "show", "add", "commit", "restore", "branch", "switch", "stash",
+})
+
+COMMAND_TIMEOUT_SECONDS: Final = 120   # run_command / git hard timeout
+FILE_ENCODING: Final = "utf-8"
+BINARY_SNIFF_BYTES: Final = 1024       # a NUL byte in this prefix => binary file
+
+# Returned to the model when the user says No, so it changes course
+# instead of asking for the same action again.
+TOOL_DECLINED_MESSAGE: Final = (
+    "The user declined this action. Do not repeat it unchanged; "
+    "explain what you wanted to do or try a different approach."
+)
+
 
 # ─────────────────────────────────────────────────────────────
 # Context and token-saving limits
