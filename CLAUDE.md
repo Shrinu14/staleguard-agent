@@ -76,7 +76,7 @@ freshness checker that catches outdated library/API usage in its own proposed co
 
 ---
 
-## 4. Current state (Pieces 1–4 — DONE)
+## 4. Current state (Pieces 1–5 — DONE)
 
 ```
 staleguard-agent/
@@ -95,8 +95,11 @@ staleguard-agent/
 │   ├── approval.py     # PendingAction + Approver (ConsoleApprover [y/N], AllowAll, DenyAll)
 │   ├── tools.py        # Repo (path safety), 6 tools, ToolExecutor = the approval gate
 │   ├── context.py      # ast repo map, output truncation, tiktoken estimates
-│   └── cli.py          # Typer app; `doctor`, `ping`, `tool NAME '{json}'`, `map`
-├── tests/              # test_llm.py, test_tools.py, test_context.py
+│   ├── loop.py         # hand-written tool-calling loop; JSON-in-text call recovery
+│   ├── session.py      # JSONL session log in <repo>/.staleguard/sessions/
+│   └── cli.py          # `doctor`, `ping`, `tool`, `map`, `run`
+├── bench/repos/mini_calc/  # buggy sample repo (mean() divides by len-1), unittest
+├── tests/              # test_llm, test_tools, test_context, test_loop
 └── freshness/__init__.py
 ```
 
@@ -108,7 +111,8 @@ Tool/approval design (Piece 3):
   searched or edited; `IGNORED_DIRS` are skipped. Edits re-check the file at apply time.
 - `git` only allows `GIT_ALLOWED_ACTIONS` (no push/pull/reset/rebase/clean/config).
 - `search` uses ripgrep if a real `rg` binary is on PATH, else a pure-Python fallback.
-- Not yet: tool JSON schemas for the model (Piece 5).
+- Tool arguments are coerced to the handler's type hints ("4" -> 4, "--a -b" -> ["--a","-b"]);
+  an unexpected exception inside a tool becomes an error result, never a crash.
 
 Context design (Piece 4):
 - `repo_map` = file list + per-Python-file outline from `ast`: UPPER_CASE consts,
@@ -119,6 +123,22 @@ Context design (Piece 4):
 - Ablation switches: `ToolExecutor(..., map_signatures=bool, truncate=bool)`.
 - Measured with `staleguard map`: this repo 3,053 vs 17,276 tokens of Python (82% saved).
   Estimates only (tiktoken); benchmark numbers must come from API `usage`.
+
+Agent loop (Piece 5):
+- `SYSTEM_PROMPT` and `TOOL_SCHEMAS_JSON` live in lookups and are identical every request
+  (stable prefix → provider prompt cache; first live run: 2,850 of 3,080 prompt tokens cached).
+  Task + repo map go in the first user message.
+- qwen2.5-coder:7b (Ollama, also when called directly) does NOT return structured
+  `tool_calls`; it writes JSON in the text. `parse_text_tool_calls` accepts tagged/fenced
+  JSON, or bare JSON that ENDS the reply; only known tool names. The assistant turn is
+  rewritten as a proper tool_calls message in history.
+- Events (`EventType`) feed both the terminal printer and the JSONL session log.
+- `staleguard run --auto-approve` exists for sandboxes; Claude Code's permission system
+  blocks Claude from using it, so live runs by Claude happen with writes auto-denied (no TTY).
+- Human e2e run (2026-11-04) on a copy of mini_calc: read_file L4-8 → edit_file (approved)
+  → tests pass. 3 turns, 3,077 in / 251 out tokens, 1,956 cached. Known weakness: qwen 7B
+  declared done WITHOUT running the tests the task asked for — revisit with prompt/loop
+  guard or a stronger planner model (Piece 7).
 
 Bifrost facts verified on v2.4.0 (do not re-guess):
 - Governance is on by default: EVERY request needs a virtual key (`x-bf-vk`), else 401.

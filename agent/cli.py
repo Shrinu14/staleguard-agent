@@ -1,6 +1,6 @@
 """
 Command-line entry point. `staleguard <command>` maps to functions here.
-Commands for run / verify / bench are added in later pieces.
+Commands for verify / bench are added in later pieces.
 """
 
 import json
@@ -10,13 +10,16 @@ from typing import Annotated
 import typer
 from pydantic import ValidationError
 from rich.console import Console
+from rich.panel import Panel
 from rich.table import Table
 
 from agent import lookups
-from agent.approval import ConsoleApprover
+from agent.approval import AllowAll, Approver, ConsoleApprover
 from agent.config import get_settings
 from agent.context import count_tokens
 from agent.llm import LLM, LLMError
+from agent.loop import AgentLoop, Event, RunResult
+from agent.session import SessionLog
 from agent.tools import Repo, ToolError, ToolExecutor, repo_map
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
@@ -176,6 +179,109 @@ def map_cmd(
             f"[yellow]Map hit its {lookups.REPO_MAP_MAX_LINES}-line cap; some files are "
             "summarized as a count, so 'Saved' is overstated for this repo.[/yellow]"
         )
+
+@app.command()
+def run(
+    task: Annotated[str, typer.Argument(help="What the agent should do, in plain words.")],
+    repo: Annotated[Path, typer.Option("--repo", "-r", help="Repository root.")] = Path("."),
+    model: Annotated[
+        str | None, typer.Option("--model", "-m", help="Model (default: MODEL_PLANNER).")
+    ] = None,
+    auto_approve: Annotated[
+        bool, typer.Option("--auto-approve", help="Approve every write. Only for sandboxes.")
+    ] = False,
+    repo_map_on: Annotated[
+        bool, typer.Option("--repo-map/--no-repo-map", help="Send the repo map up front.")
+    ] = True,
+    signatures: Annotated[
+        bool, typer.Option("--signatures/--no-signatures", help="Signatures in the map.")
+    ] = True,
+    truncate: Annotated[
+        bool, typer.Option("--truncate/--no-truncate", help="Truncate long command output.")
+    ] = True,
+    max_turns: Annotated[
+        int, typer.Option("--max-turns", min=1, help="Hard stop for the loop.")
+    ] = lookups.MAX_AGENT_TURNS,
+) -> None:
+    """Run the coding agent on a task. Reads are free; writes ask for approval."""
+    s = get_settings()
+    approver: Approver = AllowAll() if auto_approve else ConsoleApprover(console)
+    if auto_approve:
+        console.print("[bold red]--auto-approve: every edit and command will run "
+                      "without asking.[/bold red]")
+    try:
+        executor = ToolExecutor(repo, approver, map_signatures=signatures, truncate=truncate)
+        llm = LLM(s)
+    except (ToolError, LLMError) as exc:
+        console.print(f"[red]✘ {exc}[/red]")
+        raise typer.Exit(2) from exc
+
+    session = SessionLog(executor.repo.root)
+    printer = _EventPrinter(console)
+
+    def on_event(event: Event) -> None:
+        session.write(event)
+        printer(event)
+
+    loop = AgentLoop(
+        llm, executor, model=model or s.model_for(lookups.ModelRole.PLANNER),
+        on_event=on_event, include_repo_map=repo_map_on, max_turns=max_turns,
+    )
+    result = loop.run(task)
+    _print_run_summary(result, session)
+    if result.reason is not lookups.StopReason.DONE:
+        raise typer.Exit(1)
+
+
+class _EventPrinter:
+    """Turns loop events into short terminal lines."""
+
+    def __init__(self, out: Console) -> None:
+        self.out = out
+
+    def __call__(self, event: Event) -> None:
+        kind = event["type"]
+        if kind == lookups.EventType.RUN_START:
+            self.out.print(f"[bold]▶ {event['task']}[/bold]  [dim]({event['model']})[/dim]")
+        elif kind == lookups.EventType.MODEL_SWITCH:
+            self.out.print(f"[bold yellow]⚠ {event['notice']}[/bold yellow]")
+        elif kind == lookups.EventType.LLM_REPLY:
+            u = event["usage"]
+            self.out.print(f"[dim]turn {event['turn']} · {event['served_model']} · "
+                           f"{u['prompt']} in / {u['completion']} out[/dim]")
+        elif kind == lookups.EventType.TOOL_CALL:
+            args = event["arguments"] or {}
+            shown = ", ".join(f"{k}={_short(v)}" for k, v in args.items())
+            self.out.print(f"[cyan]→ {event['name']}({shown})[/cyan]", highlight=False)
+        elif kind == lookups.EventType.TOOL_RESULT:
+            first = (event["output"].splitlines() or [""])[0]
+            mark = "[green]✔[/green]" if event["ok"] else "[red]✘[/red]"
+            self.out.print(f"  {mark} [dim]{_short(first, 100)}[/dim]", highlight=False)
+
+
+def _short(value: object, limit: int = 60) -> str:
+    """Strings are shown quoted, other values as JSON (so 4 stays 4)."""
+    if not isinstance(value, str):
+        text = json.dumps(value)
+        return text if len(text) <= limit else text[:limit] + "…"
+    text = value.replace("\n", "⏎")
+    return repr(text[:limit] + "…") if len(text) > limit else repr(text)
+
+
+def _print_run_summary(result: RunResult, session: SessionLog) -> None:
+    ok = result.reason is lookups.StopReason.DONE
+    console.print(Panel(result.answer or "(no answer)", title=f"result: {result.reason}",
+                        border_style="green" if ok else "red"))
+    st = result.stats
+    table = Table(show_header=False, box=None, padding=(0, 2))
+    table.add_row("turns", str(st.turns))
+    table.add_row("tokens", f"{st.prompt_tokens:,} in / {st.completion_tokens:,} out "
+                            f"({st.cached_tokens:,} cached)")
+    table.add_row("tool calls", ", ".join(f"{k}×{v}" for k, v in st.tool_calls.items()) or "-")
+    table.add_row("models", ", ".join(st.models) or "-")
+    table.add_row("session log", str(session.path))
+    console.print(table)
+
 
 if __name__ == "__main__":
     app()

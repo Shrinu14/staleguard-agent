@@ -235,3 +235,36 @@ def test_git_status_needs_and_gets_approval(repo: Path) -> None:
     assert not denied.ok and approver.seen[0].summary == "git status"
     allowed, _ = run(repo, "git", action="status", args=["--short"])
     assert allowed.ok and "app.py" in allowed.output
+
+
+# ── loosely typed arguments from small models ────────────────
+def test_string_numbers_are_coerced(repo: Path) -> None:
+    result, _ = run(repo, "read_file", path="app.py", start="2", end=2.0)
+    assert result.ok and "lines 2-2" in result.output
+
+
+def test_non_numeric_start_is_a_clear_error(repo: Path) -> None:
+    result, _ = run(repo, "read_file", path="app.py", start="two")
+    assert not result.ok and "must be an integer" in result.output
+
+
+def test_git_args_string_is_split(repo: Path) -> None:
+    result, approver = run(repo, "git", approve=False, action="log", args="--oneline -n 1")
+    assert approver.seen[0].summary == "git log --oneline -n 1"
+
+
+def test_unexpected_tool_exception_does_not_crash(repo: Path) -> None:
+    def boom(_repo: object) -> str:
+        raise RuntimeError("disk on fire")
+
+    executor = ToolExecutor(repo, Recorder(True))
+    executor._handlers[Tool.REPO_MAP] = boom
+    result = executor.execute("repo_map")
+    assert not result.ok and "RuntimeError: disk on fire" in result.output
+
+
+def test_edit_result_wording(repo: Path) -> None:
+    edited, _ = run(repo, "edit_file", path="app.py", search="a + b", replace="a - b")
+    created, _ = run(repo, "edit_file", path="n.py", search="", replace="x = 1\n")
+    assert edited.output == "Edited app.py (+1 −1)."
+    assert created.output == "Created n.py (+1 −0)."

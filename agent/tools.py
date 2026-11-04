@@ -28,8 +28,8 @@ import subprocess
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from types import MappingProxyType
-from typing import Any
+from types import MappingProxyType, NoneType, UnionType
+from typing import Any, Union, get_args, get_origin, get_type_hints
 
 from agent import lookups
 from agent.approval import Approver, PendingAction
@@ -156,7 +156,9 @@ def _search_rg(repo: Repo, pattern: str, target: Path) -> list[str]:
     cmd = ["rg", "--line-number", "--no-heading", "--color=never", "--max-columns=300"]
     for d in sorted(lookups.IGNORED_DIRS):
         cmd += ["--glob", f"!{d}/"]
-    cmd += ["-e", pattern, "--", repo.rel(target) or "."]
+    cmd += ["-e", pattern]
+    if target != repo.root:  # given ".", rg would print "./path"; omit it instead
+        cmd += ["--", repo.rel(target)]
     proc = subprocess.run(
         cmd, cwd=repo.root, capture_output=True, text=True,
         timeout=lookups.COMMAND_TIMEOUT_SECONDS, check=False,
@@ -236,7 +238,8 @@ def edit_file(repo: Repo, path: str, search: str, replace: str) -> PendingAction
             raise ToolError(f"'{rel}' changed after the preview; re-read it and retry.")
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(new.encode(lookups.FILE_ENCODING))
-        return f"{verb}d {rel} (+{added} −{removed})."
+        done = "Edited" if exists else "Created"
+        return f"{done} {rel} (+{added} −{removed})."
 
     return PendingAction(
         tool=Tool.EDIT_FILE,
@@ -312,6 +315,47 @@ def _ensure_newlines(lines: list[str]) -> Iterator[str]:
 
 
 # ─────────────────────────────────────────────────────────────
+# Argument coercion: small models send "4" for 4, or "--short" for ["--short"]
+# ─────────────────────────────────────────────────────────────
+def coerce_arguments(handler: Callable[..., Any], args: dict[str, Any]) -> dict[str, Any]:
+    """Convert loosely-typed model arguments to the handler's annotated types."""
+    hints = get_type_hints(handler)
+    return {name: _coerce(name, value, hints.get(name, Any)) for name, value in args.items()}
+
+
+def _coerce(name: str, value: Any, expected: Any) -> Any:
+    options = [t for t in get_args(expected) if t is not NoneType] if (
+        get_origin(expected) in (Union, UnionType)
+    ) else [expected]
+    if value is None and len(options) < len(get_args(expected) or [expected]):
+        return None  # Optional parameter
+    target = options[0] if len(options) == 1 else Any
+    if target is int:
+        if isinstance(value, bool):
+            raise ToolError(f"'{name}' must be an integer")
+        if isinstance(value, int):
+            return value
+        if isinstance(value, float) and value.is_integer():
+            return int(value)
+        if isinstance(value, str) and value.strip().lstrip("-").isdigit():
+            return int(value.strip())
+        raise ToolError(f"'{name}' must be an integer, got {value!r}")
+    if target is str:
+        if isinstance(value, str):
+            return value
+        if isinstance(value, int | float) and not isinstance(value, bool):
+            return str(value)
+        raise ToolError(f"'{name}' must be a string")
+    if get_origin(target) is list:
+        if isinstance(value, str):
+            return shlex.split(value)
+        if isinstance(value, list):
+            return [str(v) for v in value]
+        raise ToolError(f"'{name}' must be a list of strings")
+    return value
+
+
+# ─────────────────────────────────────────────────────────────
 # Executor: the gate
 # ─────────────────────────────────────────────────────────────
 HANDLERS: MappingProxyType[Tool, Callable[..., Any]] = MappingProxyType({
@@ -354,13 +398,16 @@ class ToolExecutor:
         args = arguments or {}
         try:
             inspect.signature(handler).bind(self.repo, **args)
-        except TypeError as exc:
+            args = coerce_arguments(handler, args)
+        except (TypeError, ToolError) as exc:
             return ToolResult(tool, False, f"Bad arguments for {tool}: {exc}.")
 
         try:
             outcome = handler(self.repo, **args)
         except ToolError as exc:
             return ToolResult(tool, False, str(exc))
+        except Exception as exc:  # a tool bug must not crash the whole run
+            return ToolResult(tool, False, f"{tool} failed: {type(exc).__name__}: {exc}")
 
         if tool not in lookups.TOOLS_REQUIRE_APPROVAL:
             return ToolResult(tool, True, str(outcome))
@@ -374,6 +421,9 @@ class ToolExecutor:
             output = outcome.apply()
         except ToolError as exc:
             return ToolResult(tool, False, str(exc), approved=True)
+        except Exception as exc:
+            msg = f"{tool} failed: {type(exc).__name__}: {exc}"
+            return ToolResult(tool, False, msg, approved=True)
         if self.truncate and tool in lookups.TRUNCATED_TOOLS:
             output = truncate_output(output, keep_head=lookups.TRUNCATE_KEEP_HEAD_LINES)
         return ToolResult(tool, True, output, approved=True)

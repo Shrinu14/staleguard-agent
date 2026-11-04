@@ -50,6 +50,17 @@ $ uv run staleguard ping -m ollama/no-such-model:1b -f ollama/qwen2.5-coder:7b
   tokens: 36 in / 2 out (35 cached)  •  key: default
 ```
 
+## Run the agent
+
+```bash
+cp -R bench/repos/mini_calc /tmp/mini_calc     # work on a copy; the sample stays buggy
+uv run staleguard run "test_mean fails. Fix the bug in calc.py and run python3 -m unittest -q" --repo /tmp/mini_calc
+```
+
+You approve each edit and command. Every step is logged to
+`/tmp/mini_calc/.staleguard/sessions/*.jsonl`. Options: `--model`, `--max-turns`, and the
+token-saving switches `--no-repo-map`, `--no-signatures`, `--no-truncate`.
+
 ## Safety: reads are free, writes need approval
 
 The model can only *request* a write. `edit_file`, `run_command` and `git` return a
@@ -91,7 +102,10 @@ tiktoken estimate). Long command output (e.g. pytest) keeps the exit code and th
 | `agent/tools.py` | Repo tools (`repo_map`, `read_file`, `search`, `edit_file`, `run_command`, `git`) and the executor that enforces approval |
 | `agent/context.py` | Token savers: `ast` repo map with line ranges, output truncation |
 | `agent/approval.py` | The approval gate: write actions are previewed and need a `[y/N]` |
-| `agent/cli.py` | Command-line entry point (`doctor`, `ping`, `tool`, `map`) |
+| `agent/loop.py` | The hand-written tool-calling loop (no agent framework) |
+| `agent/session.py` | JSONL log of every run in `<repo>/.staleguard/sessions/` |
+| `agent/cli.py` | Command-line entry point (`doctor`, `ping`, `tool`, `map`, `run`) |
+| `bench/repos/` | Small buggy sample repos for demos and benchmarks |
 | `bifrost/config.json` | Gateway config: providers and virtual keys |
 | `docker-compose.yml` | Runs Bifrost |
 | `freshness/` | API-freshness checker (Tavily) |
