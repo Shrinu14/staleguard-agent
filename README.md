@@ -99,6 +99,36 @@ uv run staleguard check models.py --repo bench/repos/stale_api   # Pydantic v1 c
 Verdicts are cached per repo for 7 days (`.staleguard/cache.sqlite3`), so a repeat
 check costs no Tavily credit. Turn it off for a run with `--no-freshness`.
 
+## Verify any LLM answer
+
+`staleguard verify` runs the same pipeline on text — an answer from any chatbot:
+
+```bash
+uv run staleguard verify --file bench/answers/stale_python_answer.md
+uv run staleguard verify "The latest Pydantic is 1.10; use @validator."
+pbpaste | uv run staleguard verify - --json        # stdin, machine-readable
+```
+
+1. **Find claims.** Code blocks → `ast` (as above). Prose → a cheap model lists the
+   time-sensitive claims (versions, dates, prices, "latest X", deprecations). Each claim
+   must quote the answer word for word, otherwise it is dropped — the extractor can't
+   invent claims.
+2. **Re-check live.** Tavily searches the claim (official doc domains for known libraries).
+3. **Judge.** Same rule as for edits: the evidence must be a verbatim quote from a cited
+   source, or the claim is `unverifiable`. The judge is told today's date.
+4. **Report.** Each claim gets a status (`supported` / `changed` / `unverifiable`), a
+   **confidence computed from the evidence** (high = quote from the library's official
+   docs, medium = quote from another site, low = no verified evidence), the source link,
+   and evidence and inference in separate columns.
+
+| Problem 05 requirement | Where |
+|---|---|
+| Identify time-sensitive claims | `freshness/claims.py` (ast + quote-checked LLM extraction) |
+| Re-check with live research | `freshness/research.py` (Tavily) |
+| Freshness/confidence indicator + source links | `freshness/report.py` (`confidence()`) |
+| Supported / changed / unverifiable | `freshness/judge.py` |
+| Evidence separate from inference | verbatim-quote check in `judge.grade_reply` |
+
 ## Policy: confidential repos and the budget
 
 **Confidential repos.** Put `confidential = true` in a repo's `.agent.toml` and the agent
@@ -164,8 +194,8 @@ tiktoken estimate). Long command output (e.g. pytest) keeps the exit code and th
 | `agent/router.py` | Planner/editor model routing by turn |
 | `agent/policy.py` | Confidential mode (local-only) and the budget ledger + pre-call check |
 | `agent/session.py` | JSONL log of every run in `<repo>/.staleguard/sessions/` |
-| `freshness/` | Freshness checker: `extract` (ast), `versions`, `research` (Tavily), `judge`, `cache`, `report`, `checker` |
-| `agent/cli.py` | Command-line entry point (`doctor`, `ping`, `tool`, `map`, `check`, `run`) |
+| `freshness/` | Freshness checker: `extract` (ast), `claims` (prose), `versions`, `research` (Tavily), `judge`, `cache`, `report`, `checker`, `verify` |
+| `agent/cli.py` | Command-line entry point (`doctor`, `ping`, `tool`, `map`, `check`, `verify`, `run`) |
 | `bench/repos/` | Small buggy sample repos for demos and benchmarks |
 | `bifrost/config.json` | Gateway config: providers and virtual keys |
 | `docker-compose.yml` | Runs Bifrost |

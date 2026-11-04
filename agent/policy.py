@@ -149,10 +149,15 @@ def month_start(now: datetime | None = None) -> datetime:
     return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
 
-def ledger_path() -> Path:
+def user_state_dir() -> Path:
+    """~/.staleguard: per-user state (spend ledger, verify cache)."""
     folder = Path.home() / lookups.USER_STATE_DIRNAME
     folder.mkdir(exist_ok=True)
-    return folder / lookups.LEDGER_DB_FILENAME
+    return folder
+
+
+def ledger_path() -> Path:
+    return user_state_dir() / lookups.LEDGER_DB_FILENAME
 
 
 class BudgetLedger:

@@ -381,3 +381,49 @@ Do not invent anything that is not in the transcript. No preamble."""
 # system prompt, so the prompt prefix changes every turn and provider caching misses.
 UNSTABLE_PREFIX_TEMPLATE: Final = "\n\n[turn {turn} · {nonce}]"
 
+
+# ─────────────────────────────────────────────────────────────
+# `staleguard verify` (freshness/claims.py, freshness/verify.py)
+# ─────────────────────────────────────────────────────────────
+class Confidence(StrEnum):
+    """Computed in code from the evidence, never self-reported by a model."""
+    HIGH = "high"      # verbatim quote from an official doc domain
+    MEDIUM = "medium"  # verbatim quote from another source
+    LOW = "low"        # no verified evidence (unverifiable)
+
+
+VERIFY_MAX_INPUT_CHARS: Final = 12_000      # longer answers are cut (cost cap)
+VERIFY_MAX_CLAIMS: Final = 6                # prose claims researched per answer
+VERIFY_CLAIM_CACHE_TTL_DAYS: Final = 1      # prose facts (prices, versions) move fast
+VERIFY_EXTRACT_MAX_TOKENS: Final = 800
+VERIFY_QUERY_MAX_CHARS: Final = 200         # Tavily query cap for a prose claim
+VERIFY_CACHE_FILENAME: Final = "verify-cache.sqlite3"  # in ~/.staleguard (not per repo)
+CODE_FENCE_PATTERN: Final = r"```(?:python|py|python3)?[ \t]*\n(.*?)```"
+
+VERIFY_EXTRACT_PROMPT: Final = """\
+You find TIME-SENSITIVE factual claims in an AI assistant's answer: statements that can \
+become outdated (versions, release dates, prices, limits, API names or parameters, \
+deprecations, "latest"/"current"/"new" anything, who holds a role, statistics).
+Skip opinions, advice, definitions and timeless facts.
+Answer with ONE JSON object and nothing else:
+{"claims": [{"quote": "<exact words copied from the answer>",
+             "claim": "<the claim as one standalone sentence>",
+             "topic": "<library, product or subject, lowercase, e.g. pydantic>",
+             "search_query": "<a short web search query to check it today>"}]}
+Rules: quote must be copied exactly from the answer. At most 8 claims. \
+If there are none, return {"claims": []}."""
+
+VERIFY_JUDGE_PROMPT: Final = """\
+You check whether a factual claim is still true TODAY, using ONLY the numbered sources given.
+Answer with ONE JSON object and nothing else:
+{"status": "supported" | "changed" | "unverifiable",
+ "evidence_quote": "<a sentence copied word for word from the cited source, or empty>",
+ "source": <the number of the cited source, or null>,
+ "inference": "<one or two sentences of your own reasoning>",
+ "suggested_fix": "<the corrected, current statement, or empty>"}
+Rules:
+- "changed": a source shows the claim is outdated or wrong today.
+- "supported": a source confirms the claim is true today.
+- "unverifiable": the sources don't settle it. Never guess; prefer this when unsure.
+- evidence_quote must be copied exactly from the source you cite; inference is yours."""
+

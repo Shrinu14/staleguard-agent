@@ -76,7 +76,7 @@ freshness checker that catches outdated library/API usage in its own proposed co
 
 ---
 
-## 4. Current state (Pieces 1–8 — DONE)
+## 4. Current state (Pieces 1–9 — DONE)
 
 ```
 staleguard-agent/
@@ -235,6 +235,26 @@ Freshness checker (Piece 8, `freshness/`):
 - qwen 7B as judge: inference/fix text is sometimes sloppy (it is labelled as inference).
   A stronger `MODEL_JUDGE` would help. Semantic cache in Bifrost for judge calls: not
   configured yet (needs a vector store; verify in Bifrost docs first).
+
+`staleguard verify` (Piece 9, `freshness/claims.py`, `freshness/verify.py`):
+- Input: argument, `--file`, or stdin (`-`); `--json` for benchmarks (progress → stderr);
+  `--repo` for versions + policy. Exit 1 if anything is `changed`.
+- Code blocks → ast (Piece 8 pipeline, same cache). Prose → `MODEL_JUDGE` extracts
+  claims (`VERIFY_EXTRACT_PROMPT`) as JSON; each must carry a `quote` found in the
+  answer (`textutil.contains`: case/whitespace/markdown ignored, words exact) or it is
+  dropped and counted. Cap `VERIFY_MAX_CLAIMS`.
+- Research: Tavily query = the claim sentence (model-written queries were too vague —
+  "pydantic v2 deprecations" missed `@validator`); doc domains only for known library
+  topics. `research.dedupe` drops same-page anchors / identical snippets.
+- Judge: `VERIFY_JUDGE_PROMPT` + today's date; same verbatim-quote rule.
+- `Confidence` computed in code (`report.confidence`): high = verified quote on that
+  library's doc domain, medium = verified quote elsewhere, low = unverifiable.
+- Prose cache: `~/.staleguard/verify-cache.sqlite3`, key = normalized claim, TTL 1 day.
+- Live: stale answer → "Python 3.8 newest" changed (medium, blog), ChatCompletion
+  changed (high); correct pydantic answer → 2× supported (high, docs.pydantic.dev).
+- qwen 7B as judge: status usually right, but evidence can be weakly relevant and
+  inference/fix wrong (said "3.11 is latest"). Code guarantees quotes are real and
+  sourced, not that reasoning is right → use a stronger `MODEL_JUDGE` for the demo.
 
 ---
 

@@ -4,6 +4,7 @@ Commands for verify / bench are added in later pieces.
 """
 
 import json
+import sys
 from pathlib import Path
 from typing import Annotated
 
@@ -27,6 +28,7 @@ from agent.policy import (
     PolicyError,
     load_repo_policy,
     plan_models,
+    user_state_dir,
 )
 from agent.router import Router
 from agent.session import SessionLog
@@ -34,8 +36,10 @@ from agent.tools import Repo, ToolError, ToolExecutor, repo_map
 from freshness.cache import VerdictCache
 from freshness.checker import FreshnessChecker
 from freshness.judge import Judge
+from freshness.report import confidence
 from freshness.report import render as render_freshness
 from freshness.research import ResearchError, TavilySearcher
+from freshness.verify import Verifier, VerifyReport
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 console = Console()
@@ -239,20 +243,106 @@ def check(
         raise typer.Exit(1)
 
 
+@app.command()
+def verify(
+    text: Annotated[
+        str | None, typer.Argument(help='The LLM answer to check, or "-" to read stdin.')
+    ] = None,
+    file: Annotated[
+        Path | None, typer.Option("--file", "-f", help="Read the answer from a file.")
+    ] = None,
+    repo: Annotated[
+        Path, typer.Option("--repo", "-r", help="Repo for library versions and policy.")
+    ] = Path("."),
+    json_out: Annotated[
+        bool, typer.Option("--json", help="Print verdicts as JSON (for benchmarks).")
+    ] = False,
+) -> None:
+    """Check an LLM answer: find time-sensitive claims and re-check them live."""
+    if file is not None:
+        answer = file.read_text(encoding=lookups.FILE_ENCODING)
+    elif text == "-" or (text is None and not sys.stdin.isatty()):
+        answer = sys.stdin.read()
+    elif text:
+        answer = text
+    else:
+        console.print('[red]✘ give the answer as an argument, with --file, or "-" for stdin.[/red]')
+        raise typer.Exit(2)
+
+    s = get_settings()
+    out = Console(stderr=True) if json_out else console  # keep stdout clean for --json
+    try:
+        root = Repo(repo).root
+        plan = plan_models(s, load_repo_policy(root))
+        llm = LLM(s, local_only=plan.local_only)
+    except (ToolError, LLMError, PolicyError) as exc:
+        out.print(f"[red]✘ {exc}[/red]")
+        raise typer.Exit(2) from exc
+    for notice in plan.notices:
+        out.print(f"[bold magenta]🔒 {notice}[/bold magenta]")
+    if plan.local_only:
+        out.print("[magenta]Prose claims are sent to Tavily as short search queries; "
+                  "code blocks only as library/API names.[/magenta]")
+
+    budget = BudgetGuard.from_settings(s, repo=str(root))
+    checker = _make_checker(s, plan, llm, budget, root, out=out)
+    if checker is None:
+        raise typer.Exit(2)
+    verifier = Verifier(
+        judge=checker.judge, searcher=checker.searcher,  # type: ignore[arg-type]
+        code_checker=checker, budget=budget,
+        prose_cache=VerdictCache(
+            user_state_dir() / lookups.VERIFY_CACHE_FILENAME,
+            ttl_days=lookups.VERIFY_CLAIM_CACHE_TTL_DAYS),
+        on_progress=lambda m: out.print(f"[dim]  ⟳ {m}[/dim]", highlight=False),
+    )
+    report = verifier.verify(answer)
+    if json_out:
+        print(json.dumps(_report_json(report), indent=2, ensure_ascii=False))
+    else:
+        _print_verify(report)
+    if report.count(lookups.FreshnessStatus.CHANGED):
+        raise typer.Exit(1)
+
+
+def _report_json(report: VerifyReport) -> dict:
+    return {
+        "verdicts": [{**v.model_dump(), "kind": v.kind, "line": v.line, "quote": v.quote,
+                      "confidence": confidence(v).value} for v in report.verdicts],
+        "dropped_claims": report.dropped, "skipped": report.skipped,
+        "cached": report.cached, "notes": report.notes,
+    }
+
+
+def _print_verify(report: VerifyReport) -> None:
+    for note in report.notes:
+        console.print(f"[yellow]{note}[/yellow]")
+    if not report.verdicts:
+        console.print("No time-sensitive claims or library API uses found.")
+        return
+    console.print(render_freshness(report.verdicts, title="Verify: time-sensitive claims",
+                                   skipped=report.skipped))
+    S = lookups.FreshnessStatus
+    console.print(f"[dim]{report.count(S.SUPPORTED)} supported · {report.count(S.CHANGED)} "
+                  f"changed · {report.count(S.UNVERIFIABLE)} unverifiable · "
+                  f"{report.cached} from cache · {report.dropped} extracted claims dropped "
+                  "(quote not in the answer)[/dim]")
+
+
 def _make_checker(s: Settings, plan: ModelPlan, llm: LLM, budget: BudgetGuard,
-                  root: Path) -> FreshnessChecker | None:
+                  root: Path, *, out: Console | None = None) -> FreshnessChecker | None:
     """Tavily for research, the judge model through Bifrost (local if confidential)."""
     key = s.tavily_api_key.get_secret_value() if s.tavily_api_key else ""
     try:
         searcher = TavilySearcher(key)
     except ResearchError as exc:
-        console.print(f"[yellow]Freshness check off: {exc}[/yellow]")
+        (out or console).print(f"[yellow]Freshness check off: {exc}[/yellow]")
         return None
     judge_model = plan.model if plan.local_only else s.model_for(lookups.ModelRole.JUDGE)
     judge = Judge(llm, model=judge_model, fallbacks=plan.fallbacks, budget=budget)
     return FreshnessChecker(root, searcher=searcher, judge=judge,
                             cache=VerdictCache.for_repo(root),
-                            on_progress=lambda m: console.print(f"[dim]  ⟳ {m}[/dim]"))
+                            on_progress=lambda m: (out or console).print(f"[dim]  ⟳ {m}[/dim]"))
 
 
 @app.command()

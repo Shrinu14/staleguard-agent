@@ -12,8 +12,9 @@ from rich.table import Table
 from rich.text import Text
 
 from agent import lookups
-from agent.lookups import FreshnessStatus
+from agent.lookups import Confidence, FreshnessStatus
 from freshness.judge import Verdict
+from freshness.research import is_official
 
 _STYLE = {
     FreshnessStatus.CHANGED: ("✘ changed", "bold red"),
@@ -22,17 +23,25 @@ _STYLE = {
 }
 
 
+def confidence(v: Verdict) -> Confidence:
+    """Computed from the evidence, not asked from the model."""
+    if not v.evidence_verified or v.source_url is None:
+        return Confidence.LOW
+    return Confidence.HIGH if is_official(v.source_url, v.library) else Confidence.MEDIUM
+
+
 def render(verdicts: list[Verdict], *, title: str = "Freshness check (live docs)",
            skipped: int = 0) -> RenderableType:
     table = Table(title=title, show_lines=True, expand=True)
     table.add_column("Status", no_wrap=True)
-    table.add_column("API (line)")
+    table.add_column("Claim / API (line)", ratio=2)
     table.add_column("Version")
     table.add_column("Evidence (quoted from source)", ratio=3)
     table.add_column("Inference (model) / fix", ratio=3)
     for v in sorted(verdicts, key=_order):
         label, style = _STYLE[v.status]
-        api = f"{v.symbol} (L{v.line})" if v.line else v.symbol
+        label = f"{label}\n{confidence(v).value} confidence"
+        api = _subject(v)
         if v.kind == "method (heuristic)":
             api += "\n[dim]receiver type guessed[/dim]"
         evidence = Text()
@@ -45,7 +54,7 @@ def render(verdicts: list[Verdict], *, title: str = "Freshness check (live docs)
         inference = v.inference or "-"
         if v.suggested_fix:
             inference += f"\n[bold]Fix:[/bold] {v.suggested_fix}"
-        table.add_row(Text(label, style=style), api, v.version, evidence, inference)
+        table.add_row(Text(label, style=style), api, v.version or "-", evidence, inference)
     parts: list[RenderableType] = [table]
     if skipped:
         parts.append(Text(f"{skipped} more API uses not checked "
@@ -67,6 +76,12 @@ def model_note(verdicts: list[Verdict]) -> str:
             line += f" Suggested: {v.suggested_fix}"
         lines.append(line)
     return "\n".join(lines)
+
+
+def _subject(v: Verdict) -> str:
+    if v.kind == "prose":
+        return v.claim
+    return f"{v.symbol} (L{v.line})" if v.line else v.symbol
 
 
 def _order(v: Verdict) -> tuple[int, int]:
