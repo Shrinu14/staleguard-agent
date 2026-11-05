@@ -76,7 +76,7 @@ freshness checker that catches outdated library/API usage in its own proposed co
 
 ---
 
-## 4. Current state (Pieces 1–11 — DONE)
+## 4. Current state (Pieces 1–11 DONE; 12 assets done, video pending)
 
 ```
 staleguard-agent/
@@ -104,7 +104,8 @@ staleguard-agent/
 ├── bench/{runner,freshness_bench,report}.py + templates/report.html.j2
 ├── bench/results/<dir>/  # coding.jsonl, freshness.jsonl, meta.json, logs/
 ├── docs/index.html     # generated report (GitHub Pages)
-├── Makefile            # setup, demo, bench, report, lint, test, check
+├── Makefile            # setup, demo, bench, report, gifs, lint, test, check
+├── demo/               # DEMO_SCRIPT.md, tapes/*.tape (VHS), gifs/*.gif, hero_edit.json
 ├── .github/workflows/ci.yml  # ruff + offline pytest (uv sync --locked), no secrets
 ├── tests/              # test_llm, test_tools, test_context, test_loop
 └── freshness/__init__.py
@@ -308,6 +309,28 @@ Delivery (Piece 11):
   zero: a second Bifrost container on the generated keys (port/name clash with the
   running one); the Bifrost flow itself was verified in Piece 2.
 
+Demo assets (Piece 12):
+- `demo/DEMO_SCRIPT.md`: 3:30 script, scenes + commands + voice-over, matching §9.
+- VHS 0.12.1 (`brew install vhs`; brings ttyd + ffmpeg). Tapes in `demo/tapes/`, shared
+  `_setup.tape` (zsh, `setopt interactive_comments` — without it a `# … >=1.40` line is
+  run as a command; PS1 `> ` + WaitPattern). Use backtick strings (no escapes in tapes);
+  `Wait+Line /Approve/` works, `Wait+Screen` timed out. `make gifs` re-records.
+- GIFs (real runs, 1.4 MB): 00 approval gate (hero), 01 check, 02 verify, 03 fallback,
+  04 budget (unpriced openai/gpt-4 refused pre-request → y → local), 05 confidential +
+  README injection.
+- Hero scene is scripted: `staleguard tool edit_file "$(cat demo/hero_edit.json)" --freshness`
+  (new flag; same reviewer as `run`). hero_edit creates summary.py so both stale APIs are
+  "new" (`new_api_uses` compares by symbol: a 2nd ChatCompletion in chat.py is NOT checked).
+  Live `run` trials with qwen 7B: wrote stale code in prose instead of edit_file, or
+  avoided it — unreliable; noted in the script as optional live take.
+- Not recordable without the user: the true budget stop at the limit (needs a cloud key +
+  a real price in MODEL_PRICING_PER_MTOK — never invent prices), a mid-session outage
+  (needs a 2nd fallback model), the Bifrost dashboard scene, and the video itself.
+- Seen while recording: judge marked openai.Completion.create "changed" with a real but
+  irrelevant quote (SillyTavern release notes) → README limitation "quotes are checked to
+  exist, not to be relevant". Docker Desktop had stopped once → Bifrost unreachable; check
+  before recording.
+
 ---
 
 ## 5. Target architecture
@@ -452,7 +475,7 @@ Each piece: build → test → explain clearly → STOP for user confirmation.
 | 9 | `staleguard verify "<text>"` | Works on free-text LLM answers |
 | 10 | Benchmark: ~12 pytest-graded coding tasks × 3 runs × modes (ablation); ~20 freshness snippets (half stale); static HTML report (plotly + jinja2) for GitHub Pages | DONE |
 | 11 | Delivery: Makefile (`setup`, `demo`, `bench`), quick-start README with requirement→feature table, architecture diagram, results, limitations; GitHub Actions (ruff + pytest) | DONE |
-| 12 | Demo assets: VHS/asciinema GIF, demo script | Video recorded by 14 Nov |
+| 12 | Demo assets: VHS/asciinema GIF, demo script | Assets DONE; video recording pending (user) |
 
 **Suggested dates:** 2 (Nov 5) · 3–4 (Nov 6–7) · 5 (Nov 8) · 6–7 (Nov 9–10) ·
 8–9 (Nov 11) · 10 (Nov 12) · 11 (Nov 13) · 12 + video (Nov 14) · buffer (Nov 15).

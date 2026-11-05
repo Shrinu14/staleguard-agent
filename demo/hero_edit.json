@@ -1,0 +1,5 @@
+{
+  "path": "summary.py",
+  "search": "",
+  "replace": "\"\"\"One-line summaries of support tickets.\"\"\"\n\nimport openai\nfrom pydantic import BaseModel\n\n\nclass Ticket(BaseModel):\n    id: int\n    body: str\n\n\ndef summarize(ticket: Ticket) -> dict:\n    response = openai.ChatCompletion.create(\n        model=\"gpt-4o-mini\",\n        messages=[{\"role\": \"user\", \"content\": f\"Summarize in one sentence: {ticket.body}\"}],\n    )\n    return {\"ticket\": ticket.dict(), \"summary\": response[\"choices\"][0][\"message\"][\"content\"]}\n"
+}

@@ -12,17 +12,7 @@ agent that edits Python repos with as few tokens as it can. Every edit it propos
 checked against the library's live documentation, and the result shows up under the diff
 before you press `y`.
 
-```console
-$ uv run staleguard check chat.py --repo bench/repos/stale_api
-┃ Status          ┃ Claim / API (line)       ┃ Version ┃ Evidence (quoted from source)          ┃ Inference (model) / fix   ┃
-│ ✘ changed       │ openai.ChatCompletion    │ >=1.40  │ “You tried to access                   │ The API has been removed  │
-│ high confidence │ .create (L11)            │         │ openai.ChatCompletion, but this is no  │ in version 1.0.0 and      │
-│                 │                          │         │ longer supported in openai>=1.0.0 …”   │ later.                    │
-│                 │                          │         │ https://github.com/openai/openai-py…   │                           │
-│ ? unverifiable  │ openai.api_key (L7)      │ >=1.40  │                                        │ The sources provided do   │
-│ low confidence  │                          │         │                                        │ not explicitly state …    │
-2 checked · 1 from cache · 1 changed
-```
+![An edit using stale openai and pydantic APIs reaches the approval gate; the live freshness table flags both with verbatim quotes before the user answers](demo/gifs/00_approval_gate.gif)
 
 ## Quick start
 
@@ -58,6 +48,7 @@ uv run staleguard ping
 | `staleguard run "<task>" --repo DIR` | Agent loop: reads freely, previews every write and waits for your approval |
 | `staleguard check FILE --repo DIR` | Freshness check of every third-party API in a file |
 | `staleguard verify "<text>"` / `--file` / `-` | Finds the time-sensitive claims in any LLM answer and re-checks them live |
+| `staleguard tool NAME '<json>' [--freshness]` | Call one tool by hand, through the same approval gate (and freshness reviewer) |
 | `staleguard map` | Repo map plus a token comparison |
 | `staleguard bench coding\|freshness\|report` | Benchmark and HTML report |
 | `staleguard doctor` / `ping` / `init` | Setup and health |
@@ -108,6 +99,21 @@ flowchart LR
   checker is a reviewer on that gate, so a stale API is flagged before you approve, and
   `changed` findings go back to the agent so it can fix them.
 
+## Demo
+
+The video script is in [`demo/DEMO_SCRIPT.md`](demo/DEMO_SCRIPT.md). Each GIF is a real
+run recorded with [VHS](https://github.com/charmbracelet/vhs) from `demo/tapes/`.
+Re-record them with `make gifs`.
+
+| Scene | GIF |
+|---|---|
+| A stale edit at the approval gate (shown above) | [`00_approval_gate.gif`](demo/gifs/00_approval_gate.gif) |
+| Freshness check of existing code | [`01_freshness_check.gif`](demo/gifs/01_freshness_check.gif) |
+| Verify a chatbot answer | [`02_verify_answer.gif`](demo/gifs/02_verify_answer.gif) |
+| The primary model is unavailable, so Bifrost falls back and the CLI says so | [`03_fallback.gif`](demo/gifs/03_fallback.gif) |
+| Budget checked before the request; an unpriced model is refused and local is offered | [`04_budget.gif`](demo/gifs/04_budget.gif) |
+| Confidential repo + prompt injection: stays local | [`05_confidential.gif`](demo/gifs/05_confidential.gif) |
+
 ## Results (real runs, local `qwen2.5-coder:7b`, $0)
 
 Full report: [`docs/index.html`](docs/index.html). Turn on GitHub Pages from `/docs` to
@@ -145,6 +151,9 @@ grader decides success.
 - **Judge false alarms.** All 5 false positives quote docs that name the target as the
   *replacement* ("Use `np.float64` instead"). The quotes are real, but the 7B judge reads
   them the wrong way round. A stronger `MODEL_JUDGE` is recommended.
+- **Quotes are checked to exist, not to be relevant.** In one trial the judge marked
+  `openai.Completion.create` as changed, quoting a real but unrelated sentence from a
+  third-party release note. The source link is always shown, so a reader can spot this.
 - **Small benchmark.** So far there is 1 run per mode (n = 12 per mode), and the tasks are
   tiny, so the token savers barely show. To add runs 2–3, run
   `make bench RUNS=3 RESULTS=bench/results/live`. It resumes and only fills in what's
@@ -354,7 +363,8 @@ uv run staleguard bench report bench/results/<dir>   # → docs/index.html
 | `docs/index.html` | Generated benchmark report (GitHub Pages) |
 | `bifrost/config.json` | Gateway config: providers and virtual keys |
 | `docker-compose.yml` | Runs Bifrost |
-| `Makefile` | `setup`, `demo`, `bench`, `report`, `check` |
+| `Makefile` | `setup`, `demo`, `bench`, `report`, `gifs`, `check` |
+| `demo/` | Video script, VHS tapes, recorded GIFs, the scripted stale edit |
 | `agent/setup_env.py` | `staleguard init`: creates `.env`, generates the Bifrost keys |
 
 ## Development

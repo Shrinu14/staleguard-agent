@@ -173,6 +173,9 @@ def tool_cmd(
         str, typer.Argument(help='Tool arguments as JSON, e.g. \'{"path": "README.md"}\'.')
     ] = "{}",
     repo: Annotated[Path, typer.Option("--repo", "-r", help="Repository root.")] = Path("."),
+    freshness: Annotated[bool, typer.Option(
+        "--freshness/--no-freshness",
+        help="Freshness-check new library APIs in an edit (as in `run`).")] = False,
 ) -> None:
     """Call one agent tool by hand, through the same approval gate the agent uses."""
     try:
@@ -185,7 +188,15 @@ def tool_cmd(
         raise typer.Exit(2)
     try:
         executor = ToolExecutor(repo, ConsoleApprover(console))
-    except ToolError as exc:
+        if freshness:
+            s = get_settings()
+            plan = plan_models(s, load_repo_policy(executor.repo.root))
+            checker = _make_checker(
+                s, plan, LLM(s, local_only=plan.local_only),
+                BudgetGuard.from_settings(s, repo=str(executor.repo.root)), executor.repo.root)
+            if checker is not None:
+                executor.reviewer = checker.review
+    except (ToolError, LLMError, PolicyError) as exc:
         console.print(f"[red]✘ {exc}[/red]")
         raise typer.Exit(2) from exc
 

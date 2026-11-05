@@ -1,8 +1,9 @@
 # StaleGuard Agent — common tasks. Needs: uv, Docker, Ollama (running natively).
 #   make setup    install, pull the model, create .env, start Bifrost, check
-#   make demo     freshness check + verify + an agent run you approve step by step
+#   make demo     approval gate + freshness check + verify + an agent run you approve
 #   make bench    full benchmark (12 tasks x 6 modes x 3 runs + 20 snippets) and report
 #   make report   rebuild docs/index.html from RESULTS=bench/results/<dir>
+#   make gifs     re-record demo/gifs/*.gif from demo/tapes (needs: brew install vhs)
 #   make check    lint + tests (what CI runs)
 
 MODEL   ?= qwen2.5-coder:7b
@@ -10,7 +11,7 @@ RUNS    ?= 3
 RESULTS ?= bench/results/latest
 SG      := uv run staleguard
 
-.PHONY: help setup demo bench report lint test check
+.PHONY: help setup demo bench report gifs lint test check
 
 help:
 	@grep -E '^#   make' Makefile | sed 's/^#   //'
@@ -26,6 +27,9 @@ setup:
 	$(SG) ping
 
 demo:
+	@echo "== 0. A stale edit reaches the approval gate: diff + live freshness table (answer n) =="
+	@d=$$(mktemp -d -t staleguard-demo) && cp -R bench/repos/stale_api/. "$$d" && \
+		$(SG) tool edit_file "$$(cat demo/hero_edit.json)" --repo "$$d" --freshness || true
 	@echo "== 1. Freshness check: stale OpenAI v0 / Pydantic v1 code (read only) =="
 	-$(SG) check chat.py --repo bench/repos/stale_api
 	@echo "== 2. Verify a chatbot answer that contains stale claims =="
@@ -43,6 +47,9 @@ bench:
 
 report:
 	$(SG) bench report $(RESULTS)
+
+gifs:
+	@for t in demo/tapes/[0-9]*.tape; do echo "vhs $$t"; vhs "$$t" >/dev/null || exit 1; done
 
 lint:
 	uv run ruff check .
