@@ -1,0 +1,2 @@
+prompt = """divide(a, 0) raises ZeroDivisionError. Make it raise ValueError('cannot divide by zero') instead. Fix mathops.py. Run the tests with: python3 -m unittest -q"""
+test_command = "python3 -m unittest -q"

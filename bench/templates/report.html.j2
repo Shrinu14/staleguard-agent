@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StaleGuard benchmark</title>
+<script src="{{ plotly_cdn }}" charset="utf-8"></script>
+<style>
+  :root { --ink:#1d2433; --muted:#5d6779; --line:#e3e7ee; --bg:#f7f8fb; --good:#2f8f4e; --bad:#c2412d; --warn:#a6841c; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: Inter, system-ui, -apple-system, sans-serif; color:var(--ink); background:var(--bg); line-height:1.5; }
+  main { max-width: 1100px; margin: 0 auto; padding: 32px 20px 64px; }
+  h1 { margin: 0 0 4px; font-size: 28px; }
+  h2 { margin: 40px 0 8px; font-size: 21px; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:10px; padding:18px 20px; margin:16px 0; }
+  .kpis { display:grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap:12px; }
+  .kpi { background:#fff; border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
+  .kpi b { display:block; font-size:24px; }
+  .kpi span { color: var(--muted); font-size: 13px; }
+  table { width:100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align:left; padding:7px 9px; border-bottom:1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight:600; font-size: 12px; text-transform: uppercase; letter-spacing:.03em; }
+  td.num, th.num { text-align:right; font-variant-numeric: tabular-nums; }
+  .good { color: var(--good); font-weight:600; } .bad { color: var(--bad); font-weight:600; } .warn { color: var(--warn); font-weight:600; }
+  code { font-size: 13px; background:#eef1f6; padding:1px 5px; border-radius:4px; }
+  .muted { color: var(--muted); font-size: 13px; }
+  a { color:#2b5fc4; }
+  .ev { max-width: 380px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>StaleGuard benchmark</h1>
+  <p class="sub">Generated {{ generated }} from <code>{{ results_dir }}</code>
+    {% if meta.git_commit %}· commit <code>{{ meta.git_commit }}</code>{% endif %}
+    {% if meta.model %}· model <code>{{ meta.model }}</code>{% endif %}
+    {% if meta.judge_model %}· judge <code>{{ meta.judge_model }}</code>{% endif %}</p>
+  <p class="muted">All token counts are the API's own <code>usage</code> numbers from real runs (not estimates).
+    Success = the task's hidden pytest grader passes after the run; the agent never sees the grader.</p>
+
+{% if rows %}
+  {% set base = rows[0] %}{% set last = rows[-1] %}
+  <div class="kpis">
+    <div class="kpi"><b>{{ coding|length }}</b><span>graded agent runs</span></div>
+    <div class="kpi"><b>{{ "%.0f"|format(base.tokens) }} → {{ "%.0f"|format(last.tokens) }}</b><span>tokens per run: {{ base.mode }} → {{ last.mode }}</span></div>
+    <div class="kpi"><b>{% if last.saved_vs_baseline is not none %}{{ "%.0f"|format(last.saved_vs_baseline * 100) }}%{% else %}–{% endif %}</b><span>tokens saved vs baseline</span></div>
+    <div class="kpi"><b>{{ "%.0f"|format(base.success_rate * 100) }}% → {{ "%.0f"|format(last.success_rate * 100) }}%</b><span>success rate</span></div>
+  </div>
+
+  <h2>Coding tasks: token ablation</h2>
+  <p class="muted">Modes are cumulative: each adds one token saver to the one above.</p>
+  <div class="card">
+  <table>
+    <tr><th>Mode</th><th class="num">Runs</th><th class="num">Success</th><th class="num">Tokens / run</th>
+        <th class="num">Prompt</th><th class="num">Completion</th><th class="num">Cached share</th>
+        <th class="num">Turns</th><th class="num">Cost / run</th><th class="num">Seconds</th><th class="num">vs baseline</th></tr>
+    {% for r in rows %}
+    <tr><td><code>{{ r.mode }}</code></td><td class="num">{{ r.runs }}</td>
+      <td class="num">{{ "%.0f"|format(r.success_rate * 100) }}%</td>
+      <td class="num">{{ "{:,.0f}".format(r.tokens) }}</td>
+      <td class="num">{{ "{:,.0f}".format(r.prompt_tokens) }}</td>
+      <td class="num">{{ "{:,.0f}".format(r.completion_tokens) }}</td>
+      <td class="num">{{ "%.0f"|format(r.cached_share * 100) }}%</td>
+      <td class="num">{{ "%.1f"|format(r.turns) }}</td>
+      <td class="num">${{ "%.4f"|format(r.cost_usd) }}</td>
+      <td class="num">{{ "%.0f"|format(r.seconds) }}</td>
+      <td class="num">{% if r.saved_vs_baseline is not none %}<span class="{{ 'good' if r.saved_vs_baseline > 0 else 'bad' }}">{{ "%+.0f"|format(-r.saved_vs_baseline * 100) }}%</span>{% else %}–{% endif %}</td></tr>
+    {% endfor %}
+  </table>
+  </div>
+  <div class="card">{{ charts.tokens|safe }}</div>
+  <div class="card">{{ charts.matrix|safe }}</div>
+  <div class="card">
+    <table>
+      <tr><th>Mode</th><th>repo map</th><th>truncation</th><th>compaction</th><th>routing</th><th>stable prefix</th></tr>
+      {% for name, f in modes.items() %}
+      <tr><td><code>{{ name }}</code></td>
+        {% for k in ["repo_map", "truncate", "compaction", "routing", "stable_prefix"] %}<td>{{ "✔" if f[k] else "–" }}</td>{% endfor %}</tr>
+      {% endfor %}
+    </table>
+  </div>
+{% endif %}
+
+{% if fresh_score %}
+  {% set s = fresh_score %}
+  <h2>Freshness checker: {{ s.snippets }} snippets ({{ s.stale }} stale, {{ s.current }} current)</h2>
+  <div class="kpis">
+    <div class="kpi"><b>{% if s.recall is not none %}{{ "%.0f"|format(s.recall * 100) }}%{% else %}–{% endif %}</b><span>stale APIs caught (recall)</span></div>
+    <div class="kpi"><b>{% if s.precision is not none %}{{ "%.0f"|format(s.precision * 100) }}%{% else %}–{% endif %}</b><span>"changed" verdicts that were right (precision)</span></div>
+    <div class="kpi"><b>{{ s.wrong_supported }}</b><span>stale APIs wrongly called current</span></div>
+    <div class="kpi"><b>{{ s.missed }} / {{ s.current_unverifiable }}</b><span>unverifiable (stale / current)</span></div>
+  </div>
+  <div class="card">{{ charts.freshness|safe }}</div>
+  <div class="card">
+  <table>
+    <tr><th>Snippet</th><th>Truth</th><th>Verdict</th><th>Confidence</th><th class="ev">Evidence (verbatim) / source</th><th class="num">s</th></tr>
+    {% for r in fresh %}
+    {% set right = (r.status == r.expected) %}
+    <tr><td><code>{{ r.target }}</code></td><td>{{ r.expected }}</td>
+      <td class="{{ 'good' if right else ('warn' if r.status == 'unverifiable' else 'bad') }}">{{ r.status }}</td>
+      <td>{{ r.confidence }}</td>
+      <td class="ev">{% if r.evidence %}“{{ r.evidence }}”<br>{% endif %}{% if r.source_url %}<a href="{{ r.source_url }}">{{ r.source_url }}</a>{% endif %}{% if r.note %}<div class="muted">{{ r.note }}</div>{% endif %}</td>
+      <td class="num">{{ "%.0f"|format(r.seconds) }}</td></tr>
+    {% endfor %}
+  </table>
+  </div>
+{% endif %}
+
+{% if not rows and not fresh_score %}<div class="card">No results yet.</div>{% endif %}
+  <p class="muted">Raw per-run records and full agent logs are in the results directory of the repository.</p>
+</main>
+</body>
+</html>

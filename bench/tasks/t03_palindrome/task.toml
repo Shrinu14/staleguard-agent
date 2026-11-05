@@ -1,0 +1,2 @@
+prompt = """is_palindrome should ignore case and spaces ('Never odd or even' is a palindrome). Update text_utils.py. Run the tests with: python3 -m unittest -q"""
+test_command = "python3 -m unittest -q"

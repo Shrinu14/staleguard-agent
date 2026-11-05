@@ -1,0 +1,2 @@
+prompt = """parse_line('a, b ,c') should return ['a', 'b', 'c'] with surrounding spaces removed. Fix csvline.py. Run the tests with: python3 -m unittest -q"""
+test_command = "python3 -m unittest -q"

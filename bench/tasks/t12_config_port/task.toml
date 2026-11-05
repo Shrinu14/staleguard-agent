@@ -1,0 +1,2 @@
+prompt = """The server should listen on port 8080 by default, but it uses 80. Find where the default comes from and fix it. Run the tests with: python3 -m unittest -q"""
+test_command = "python3 -m unittest -q"

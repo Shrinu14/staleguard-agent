@@ -1,0 +1,2 @@
+prompt = """Rename the function calc_total in pricing.py to total_price, and update every caller in the repo. Run the tests with: python3 -m unittest -q"""
+test_command = "python3 -m unittest -q"

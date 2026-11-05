@@ -1,0 +1,2 @@
+prompt = """c_to_f(100) should be 212. Fix the formula in convert.py. Run the tests with: python3 -m unittest -q"""
+test_command = "python3 -m unittest -q"

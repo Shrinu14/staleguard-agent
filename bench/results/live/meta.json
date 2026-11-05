@@ -1,0 +1,33 @@
+{
+  "git_commit": "1c1eaf9",
+  "judge_model": "ollama/qwen2.5-coder:7b",
+  "freshness_started": "2026-11-04T18:30:03+00:00",
+  "freshness_finished": "2026-11-04T18:32:55+00:00",
+  "model": "ollama/qwen2.5-coder:7b",
+  "editor_model": "ollama/qwen2.5-coder:7b",
+  "runs": 1,
+  "modes": [
+    "baseline",
+    "+repo_map",
+    "+truncation",
+    "+compaction",
+    "+routing",
+    "+stable_prefix"
+  ],
+  "tasks": [
+    "t01_mean",
+    "t02_fizzbuzz",
+    "t03_palindrome",
+    "t04_word_count",
+    "t05_median",
+    "t06_temperature",
+    "t07_slugify",
+    "t08_inventory",
+    "t09_csv_strip",
+    "t10_rename",
+    "t11_divide_zero",
+    "t12_config_port"
+  ],
+  "coding_started": "2026-11-04T18:34:02+00:00",
+  "coding_finished": "2026-11-04T18:52:56+00:00"
+}

@@ -1,0 +1,2 @@
+prompt = """word_count('a  b\nc') should be 3 but returns 4. Fix words.py so any whitespace separates words. Run the tests with: python3 -m unittest -q"""
+test_command = "python3 -m unittest -q"

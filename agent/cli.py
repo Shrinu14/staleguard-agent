@@ -5,8 +5,9 @@ Commands for verify / bench are added in later pieces.
 
 import json
 import sys
+from dataclasses import asdict
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 import typer
 from pydantic import ValidationError
@@ -40,6 +41,10 @@ from freshness.report import confidence
 from freshness.report import render as render_freshness
 from freshness.research import ResearchError, TavilySearcher
 from freshness.verify import Verifier, VerifyReport
+
+if TYPE_CHECKING:
+    from bench.freshness_bench import SnippetRecord
+    from bench.runner import RunRecord
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 console = Console()
@@ -445,6 +450,124 @@ def _offer_local(result: RunResult) -> bool:
         return False
     return Confirm.ask("Continue on the local model only (free, nothing leaves "
                        "this machine)?", default=False, console=console)
+
+
+bench_app = typer.Typer(no_args_is_help=True, help="Benchmarks and the HTML report.")
+app.add_typer(bench_app, name="bench")
+
+
+def _results_dir(out: Path | None) -> Path:
+    from bench.runner import new_results_dir
+    if out is not None:
+        out.mkdir(parents=True, exist_ok=True)
+        return out
+    return new_results_dir(Path(lookups.BENCH_RESULTS_DIR))
+
+
+@bench_app.command("coding")
+def bench_coding(
+    tasks: Annotated[
+        str | None, typer.Option(help="Comma-separated task ids (default: all).")] = None,
+    modes: Annotated[
+        str | None, typer.Option(help="Comma-separated modes (default: all).")] = None,
+    runs: Annotated[
+        int, typer.Option(min=1, help="Repeats per task and mode.")] = lookups.BENCH_DEFAULT_RUNS,
+    model: Annotated[
+        str | None, typer.Option("--model", "-m", help="Planner model.")] = None,
+    out: Annotated[
+        Path | None, typer.Option(help="Results dir (reuse one to resume).")] = None,
+) -> None:
+    """Real agent runs on the graded tasks, once per ablation mode, N times.
+    Runs unattended with a narrow approver: edits inside a temp copy only, and only
+    the test command (no shell operators). Nothing outside the sandbox is touched."""
+    from bench.runner import git_commit, load_tasks, run_coding, write_meta
+    s = get_settings()
+    chosen_modes = modes.split(",") if modes else list(lookups.BENCH_MODES)
+    bad = [m for m in chosen_modes if m not in lookups.BENCH_MODES]
+    if bad:
+        console.print(f"[red]✘ unknown mode(s): {', '.join(bad)}. "
+                      f"Known: {', '.join(lookups.BENCH_MODES)}[/red]")
+        raise typer.Exit(2)
+    try:
+        task_list = load_tasks(Path(lookups.BENCH_TASKS_DIR), tasks.split(",") if tasks else None)
+    except ValueError as exc:
+        console.print(f"[red]✘ {exc}[/red]")
+        raise typer.Exit(2) from exc
+    results = _results_dir(out)
+    planner = model or s.model_for(lookups.ModelRole.PLANNER)
+    write_meta(results, git_commit=git_commit(Path.cwd()), model=planner,
+               editor_model=s.model_for(lookups.ModelRole.EDITOR), runs=runs,
+               modes=chosen_modes, tasks=[t.id for t in task_list],
+               coding_started=datetime_now())
+    total = len(task_list) * len(chosen_modes) * runs
+    console.print(f"[bold]Coding benchmark[/bold]: {len(task_list)} tasks × "
+                  f"{len(chosen_modes)} modes × {runs} runs = {total} runs → {results}")
+
+    def show(rec: "RunRecord") -> None:
+        mark = "[green]✔[/green]" if rec.success else "[red]✘[/red]"
+        console.print(f"{mark} {rec.task:18} {rec.mode:15} run {rec.run}  "
+                      f"{rec.prompt_tokens + rec.completion_tokens:>7,} tok  "
+                      f"{rec.turns:>2} turns  {rec.seconds:>5.0f}s  [dim]{rec.reason}[/dim]")
+
+    run_coding(task_list, chosen_modes, runs, s, model=model, out=results, on_record=show)
+    write_meta(results, coding_finished=datetime_now())
+    console.print(f"Done. Report: [bold]uv run staleguard bench report {results}[/bold]")
+
+
+@bench_app.command("freshness")
+def bench_freshness(
+    out: Annotated[Path | None, typer.Option(help="Results dir (e.g. the coding one).")] = None,
+) -> None:
+    """Live check of 20 snippets (10 stale, 10 current) through Tavily + the judge."""
+    from bench.freshness_bench import load_snippets, run_freshness, score
+    from bench.runner import git_commit, write_meta
+    s = get_settings()
+    root = Path.cwd()
+    plan = plan_models(s, load_repo_policy(root))
+    llm = LLM(s, local_only=plan.local_only)
+    checker = _make_checker(s, plan, llm, BudgetGuard.from_settings(s, repo="bench"), root)
+    if checker is None:
+        raise typer.Exit(2)
+    results = _results_dir(out)
+    snippets = load_snippets(Path(lookups.BENCH_SNIPPETS_FILE))
+    write_meta(results, git_commit=git_commit(root), judge_model=checker.judge.model,
+               freshness_started=datetime_now())
+    console.print(f"[bold]Freshness benchmark[/bold]: {len(snippets)} snippets → {results}")
+
+    def show(rec: "SnippetRecord") -> None:
+        ok = rec.status == rec.expected
+        mark = "[green]✔[/green]" if ok else ("[yellow]?[/yellow]" if rec.status == "unverifiable"
+                                              else "[red]✘[/red]")
+        console.print(f"{mark} {rec.target:45} expected {rec.expected:9} got {rec.status:12} "
+                      f"[dim]{rec.confidence}[/dim]")
+
+    records = run_freshness(snippets, checker.searcher, checker.judge, out=results,
+                            on_record=show)
+    sc = score([asdict(r) for r in records])
+    console.print(f"recall {(sc['recall'] or 0):.0%} · precision {(sc['precision'] or 0):.0%} · "
+                  f"stale called 'supported': {sc['wrong_supported']}")
+    write_meta(results, freshness_finished=datetime_now())
+
+
+@bench_app.command("report")
+def bench_report(
+    results: Annotated[Path, typer.Argument(help="A results dir under bench/results/.")],
+    out: Annotated[
+        Path, typer.Option(help="HTML file to write.")] = Path(lookups.BENCH_REPORT_FILE),
+) -> None:
+    """Build the static HTML report (plotly + jinja2) from a results directory."""
+    try:
+        from bench.report import build_report
+    except ImportError as exc:
+        console.print("[red]✘ report needs the bench group: uv sync --group bench[/red]")
+        raise typer.Exit(2) from exc
+    path = build_report(results, out, Path(lookups.BENCH_TEMPLATE))
+    console.print(f"[green]✔[/green] wrote {path}")
+
+
+def datetime_now() -> str:
+    from datetime import UTC, datetime
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 class _EventPrinter:

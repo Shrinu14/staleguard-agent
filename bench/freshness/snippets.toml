@@ -1,0 +1,223 @@
+# Freshness benchmark: 20 snippets, 10 using a stale API and 10 using the current one.
+# `target` is the API whose verdict is graded; `requirement` is what the repo pins
+# (written to requirements.txt), so the judge compares with the right version.
+# expected = "changed" (stale) or "supported" (current). Ground truth is from the
+# libraries' own migration guides / changelogs, not from this tool.
+
+# ── stale (expected: changed) ────────────────────────────────
+[[snippet]]
+id = "openai-chatcompletion"
+requirement = "openai>=1.40"
+target = "openai.ChatCompletion.create"
+expected = "changed"
+code = '''
+import openai
+r = openai.ChatCompletion.create(model="gpt-4o-mini", messages=[{"role": "user", "content": "hi"}])
+'''
+
+[[snippet]]
+id = "openai-completion"
+requirement = "openai>=1.40"
+target = "openai.Completion.create"
+expected = "changed"
+code = '''
+import openai
+r = openai.Completion.create(model="gpt-3.5-turbo-instruct", prompt="Say hi")
+'''
+
+[[snippet]]
+id = "openai-embedding"
+requirement = "openai>=1.40"
+target = "openai.Embedding.create"
+expected = "changed"
+code = '''
+import openai
+e = openai.Embedding.create(model="text-embedding-3-small", input="hello")
+'''
+
+[[snippet]]
+id = "pydantic-dict"
+requirement = "pydantic>=2.7"
+target = "pydantic.BaseModel.dict"
+expected = "changed"
+code = '''
+from pydantic import BaseModel
+class User(BaseModel):
+    name: str
+data = User(name="a").dict()
+'''
+
+[[snippet]]
+id = "pydantic-parse-obj"
+requirement = "pydantic>=2.7"
+target = "pydantic.BaseModel.parse_obj"
+expected = "changed"
+code = '''
+from pydantic import BaseModel
+class User(BaseModel):
+    name: str
+u = User.parse_obj({"name": "a"})
+'''
+
+[[snippet]]
+id = "pydantic-validator"
+requirement = "pydantic>=2.7"
+target = "pydantic.validator"
+expected = "changed"
+code = '''
+from pydantic import BaseModel, validator
+class User(BaseModel):
+    name: str
+    @validator("name")
+    def not_empty(cls, v):
+        return v
+'''
+
+[[snippet]]
+id = "pydantic-parse-obj-as"
+requirement = "pydantic>=2.7"
+target = "pydantic.parse_obj_as"
+expected = "changed"
+code = '''
+from pydantic import parse_obj_as
+items = parse_obj_as(list[int], ["1", "2"])
+'''
+
+[[snippet]]
+id = "numpy-float-alias"
+requirement = "numpy>=1.26"
+target = "numpy.float"
+expected = "changed"
+code = '''
+import numpy as np
+x = np.zeros(3, dtype=np.float)
+'''
+
+[[snippet]]
+id = "numpy-asscalar"
+requirement = "numpy>=1.26"
+target = "numpy.asscalar"
+expected = "changed"
+code = '''
+import numpy as np
+v = np.asscalar(np.array([1.5]))
+'''
+
+[[snippet]]
+id = "sqlalchemy-ext-declarative"
+requirement = "sqlalchemy>=2.0"
+target = "sqlalchemy.ext.declarative.declarative_base"
+expected = "changed"
+code = '''
+from sqlalchemy.ext.declarative import declarative_base
+Base = declarative_base()
+'''
+
+# ── current (expected: supported) ────────────────────────────
+[[snippet]]
+id = "openai-client"
+requirement = "openai>=1.40"
+target = "openai.OpenAI"
+expected = "supported"
+code = '''
+from openai import OpenAI
+client = OpenAI()
+r = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": "hi"}])
+'''
+
+[[snippet]]
+id = "pydantic-field-validator"
+requirement = "pydantic>=2.7"
+target = "pydantic.field_validator"
+expected = "supported"
+code = '''
+from pydantic import BaseModel, field_validator
+class User(BaseModel):
+    name: str
+    @field_validator("name")
+    @classmethod
+    def not_empty(cls, v):
+        return v
+'''
+
+[[snippet]]
+id = "pydantic-type-adapter"
+requirement = "pydantic>=2.7"
+target = "pydantic.TypeAdapter"
+expected = "supported"
+code = '''
+from pydantic import TypeAdapter
+items = TypeAdapter(list[int]).validate_python(["1", "2"])
+'''
+
+[[snippet]]
+id = "pydantic-config-dict"
+requirement = "pydantic>=2.7"
+target = "pydantic.ConfigDict"
+expected = "supported"
+code = '''
+from pydantic import BaseModel, ConfigDict
+class User(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    name: str
+'''
+
+[[snippet]]
+id = "numpy-linspace"
+requirement = "numpy>=1.26"
+target = "numpy.linspace"
+expected = "supported"
+code = '''
+import numpy as np
+xs = np.linspace(0.0, 1.0, num=5)
+'''
+
+[[snippet]]
+id = "numpy-float64"
+requirement = "numpy>=1.26"
+target = "numpy.float64"
+expected = "supported"
+code = '''
+import numpy as np
+x = np.zeros(3, dtype=np.float64)
+'''
+
+[[snippet]]
+id = "sqlalchemy-select"
+requirement = "sqlalchemy>=2.0"
+target = "sqlalchemy.select"
+expected = "supported"
+code = '''
+from sqlalchemy import select
+stmt = select(1)
+'''
+
+[[snippet]]
+id = "sqlalchemy-declarative-base-class"
+requirement = "sqlalchemy>=2.0"
+target = "sqlalchemy.orm.DeclarativeBase"
+expected = "supported"
+code = '''
+from sqlalchemy.orm import DeclarativeBase
+Base = DeclarativeBase
+'''
+
+[[snippet]]
+id = "requests-get"
+requirement = "requests>=2.31"
+target = "requests.get"
+expected = "supported"
+code = '''
+import requests
+r = requests.get("https://example.com", timeout=10)
+'''
+
+[[snippet]]
+id = "fastapi-app"
+requirement = "fastapi>=0.110"
+target = "fastapi.FastAPI"
+expected = "supported"
+code = '''
+from fastapi import FastAPI
+app = FastAPI()
+'''

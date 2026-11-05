@@ -180,6 +180,30 @@ On this repo the map is ~3k tokens versus ~17k for reading every Python file (82
 tiktoken estimate). Long command output (e.g. pytest) keeps the exit code and the last
 40 lines.
 
+## Benchmark
+
+All numbers come from real runs: token counts are the API's own `usage`, and success
+is decided by a hidden pytest grader the agent never sees.
+
+```bash
+uv run staleguard bench coding --runs 3              # 12 tasks × 6 modes × 3 runs
+uv run staleguard bench coding --tasks t01_mean --modes baseline,+stable_prefix --runs 1
+uv run staleguard bench freshness --out bench/results/<dir>
+uv run staleguard bench report bench/results/<dir>   # → docs/index.html
+```
+
+- **Coding ablation.** Modes are cumulative: `baseline` → `+repo_map` → `+truncation` →
+  `+compaction` → `+routing` → `+stable_prefix`. Each task is a small buggy repo in
+  `bench/tasks/`. It runs in a temp copy, and the grader is copied in afterwards. Runs
+  are resumable: pass the same `--out` again to fill in what is missing.
+- **Unattended, but not "approve all".** The bench approver allows edits inside the temp
+  copy, and only the test command itself (`python3 -m unittest …`, `pytest …`, no
+  `;`, `&&`, `|`, `>`, `$(` or quotes). git is denied. Every decision is logged.
+- **Freshness.** 20 snippets (10 using a stale API, 10 current) go through the live
+  pipeline with no cache. The scores are recall, precision, and the harmful error:
+  a stale API called "supported".
+- **Report.** A static page (`docs/index.html`, plotly + jinja2) for GitHub Pages.
+
 ## Project layout
 
 | Path | Purpose |
@@ -195,8 +219,13 @@ tiktoken estimate). Long command output (e.g. pytest) keeps the exit code and th
 | `agent/policy.py` | Confidential mode (local-only) and the budget ledger + pre-call check |
 | `agent/session.py` | JSONL log of every run in `<repo>/.staleguard/sessions/` |
 | `freshness/` | Freshness checker: `extract` (ast), `claims` (prose), `versions`, `research` (Tavily), `judge`, `cache`, `report`, `checker`, `verify` |
-| `agent/cli.py` | Command-line entry point (`doctor`, `ping`, `tool`, `map`, `check`, `verify`, `run`) |
-| `bench/repos/` | Small buggy sample repos for demos and benchmarks |
+| `agent/cli.py` | Command-line entry point (`doctor`, `ping`, `tool`, `map`, `check`, `verify`, `run`, `bench`) |
+| `bench/repos/` | Small buggy sample repos for demos |
+| `bench/tasks/` | 12 graded coding tasks (`task.toml`, `repo/`, hidden `grade_test.py`) |
+| `bench/freshness/snippets.toml` | 20 freshness snippets with ground truth |
+| `bench/runner.py`, `freshness_bench.py`, `report.py` | Benchmark runners and the HTML report |
+| `bench/results/` | Raw results: `coding.jsonl`, `freshness.jsonl`, per-run logs |
+| `docs/index.html` | Generated benchmark report (GitHub Pages) |
 | `bifrost/config.json` | Gateway config: providers and virtual keys |
 | `docker-compose.yml` | Runs Bifrost |
 

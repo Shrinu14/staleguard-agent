@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StaleGuard benchmark</title>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+<style>
+  :root { --ink:#1d2433; --muted:#5d6779; --line:#e3e7ee; --bg:#f7f8fb; --good:#2f8f4e; --bad:#c2412d; --warn:#a6841c; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: Inter, system-ui, -apple-system, sans-serif; color:var(--ink); background:var(--bg); line-height:1.5; }
+  main { max-width: 1100px; margin: 0 auto; padding: 32px 20px 64px; }
+  h1 { margin: 0 0 4px; font-size: 28px; }
+  h2 { margin: 40px 0 8px; font-size: 21px; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:10px; padding:18px 20px; margin:16px 0; }
+  .kpis { display:grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap:12px; }
+  .kpi { background:#fff; border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
+  .kpi b { display:block; font-size:24px; }
+  .kpi span { color: var(--muted); font-size: 13px; }
+  table { width:100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align:left; padding:7px 9px; border-bottom:1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight:600; font-size: 12px; text-transform: uppercase; letter-spacing:.03em; }
+  td.num, th.num { text-align:right; font-variant-numeric: tabular-nums; }
+  .good { color: var(--good); font-weight:600; } .bad { color: var(--bad); font-weight:600; } .warn { color: var(--warn); font-weight:600; }
+  code { font-size: 13px; background:#eef1f6; padding:1px 5px; border-radius:4px; }
+  .muted { color: var(--muted); font-size: 13px; }
+  a { color:#2b5fc4; }
+  .ev { max-width: 380px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>StaleGuard benchmark</h1>
+  <p class="sub">Generated 2026-11-04 18:53 UTC from <code>bench/results/live</code>
+    · commit <code>1c1eaf9</code>
+    · model <code>ollama/qwen2.5-coder:7b</code>
+    · judge <code>ollama/qwen2.5-coder:7b</code></p>
+  <p class="muted">All token counts are the API's own <code>usage</code> numbers from real runs (not estimates).
+    Success = the task's hidden pytest grader passes after the run; the agent never sees the grader.</p>
+
+
+  
+  <div class="kpis">
+    <div class="kpi"><b>72</b><span>graded agent runs</span></div>
+    <div class="kpi"><b>2460 → 2625</b><span>tokens per run: baseline → +stable_prefix</span></div>
+    <div class="kpi"><b>-7%</b><span>tokens saved vs baseline</span></div>
+    <div class="kpi"><b>8% → 42%</b><span>success rate</span></div>
+  </div>
+
+  <h2>Coding tasks: token ablation</h2>
+  <p class="muted">Modes are cumulative: each adds one token saver to the one above.</p>
+  <div class="card">
+  <table>
+    <tr><th>Mode</th><th class="num">Runs</th><th class="num">Success</th><th class="num">Tokens / run</th>
+        <th class="num">Prompt</th><th class="num">Completion</th><th class="num">Cached share</th>
+        <th class="num">Turns</th><th class="num">Cost / run</th><th class="num">Seconds</th><th class="num">vs baseline</th></tr>
+    
+    <tr><td><code>baseline</code></td><td class="num">12</td>
+      <td class="num">8%</td>
+      <td class="num">2,460</td>
+      <td class="num">2,281</td>
+      <td class="num">179</td>
+      <td class="num">21%</td>
+      <td class="num">2.6</td>
+      <td class="num">$0.0000</td>
+      <td class="num">14</td>
+      <td class="num"><span class="bad">-0%</span></td></tr>
+    
+    <tr><td><code>+repo_map</code></td><td class="num">12</td>
+      <td class="num">50%</td>
+      <td class="num">2,674</td>
+      <td class="num">2,473</td>
+      <td class="num">201</td>
+      <td class="num">20%</td>
+      <td class="num">2.6</td>
+      <td class="num">$0.0000</td>
+      <td class="num">19</td>
+      <td class="num"><span class="bad">+9%</span></td></tr>
+    
+    <tr><td><code>+truncation</code></td><td class="num">12</td>
+      <td class="num">50%</td>
+      <td class="num">2,674</td>
+      <td class="num">2,474</td>
+      <td class="num">200</td>
+      <td class="num">20%</td>
+      <td class="num">2.6</td>
+      <td class="num">$0.0000</td>
+      <td class="num">18</td>
+      <td class="num"><span class="bad">+9%</span></td></tr>
+    
+    <tr><td><code>+compaction</code></td><td class="num">12</td>
+      <td class="num">42%</td>
+      <td class="num">2,570</td>
+      <td class="num">2,387</td>
+      <td class="num">183</td>
+      <td class="num">20%</td>
+      <td class="num">2.5</td>
+      <td class="num">$0.0000</td>
+      <td class="num">17</td>
+      <td class="num"><span class="bad">+4%</span></td></tr>
+    
+    <tr><td><code>+routing</code></td><td class="num">12</td>
+      <td class="num">50%</td>
+      <td class="num">2,671</td>
+      <td class="num">2,472</td>
+      <td class="num">199</td>
+      <td class="num">20%</td>
+      <td class="num">2.6</td>
+      <td class="num">$0.0000</td>
+      <td class="num">16</td>
+      <td class="num"><span class="bad">+9%</span></td></tr>
+    
+    <tr><td><code>+stable_prefix</code></td><td class="num">12</td>
+      <td class="num">42%</td>
+      <td class="num">2,625</td>
+      <td class="num">2,438</td>
+      <td class="num">187</td>
+      <td class="num">86%</td>
+      <td class="num">2.6</td>
+      <td class="num">$0.0000</td>
+      <td class="num">11</td>
+      <td class="num"><span class="bad">+7%</span></td></tr>
+    
+  </table>
+  </div>
+  <div class="card"><div style="height:420px; width:100%;">                            <div id="a94d966d-5f64-467f-8ff9-2d12e93bc8c4" class="plotly-graph-div" style="height:100%; width:100%;"></div>            <script>                window.PLOTLYENV=window.PLOTLYENV || {};                                if (document.getElementById("a94d966d-5f64-467f-8ff9-2d12e93bc8c4")) {                    Plotly.newPlot(                        "a94d966d-5f64-467f-8ff9-2d12e93bc8c4",                        [{"marker":{"color":"#3b6fd4"},"name":"prompt tokens","x":["baseline","+repo_map","+truncation","+compaction","+routing","+stable_prefix"],"y":[2280.8333333333335,2473,2473.5833333333335,2387,2472.4166666666665,2437.5833333333335],"type":"bar"},{"marker":{"color":"#9db8ec"},"name":"completion tokens","x":["baseline","+repo_map","+truncation","+compaction","+routing","+stable_prefix"],"y":[179.33333333333334,201.33333333333334,200.5,182.58333333333334,198.83333333333334,187.25],"type":"bar"},{"line":{"color":"#d4543b","width":3},"mode":"lines+markers","name":"success rate (%)","x":["baseline","+repo_map","+truncation","+compaction","+routing","+stable_prefix"],"y":[8.333333333333332,50.0,50.0,41.66666666666667,50.0,41.66666666666667],"type":"scatter","xaxis":"x","yaxis":"y2"}],                        {"template":{"data":{"barpolar":[{"marker":{"line":{"color":"white","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"barpolar"}],"bar":[{"error_x":{"color":"#2a3f5f"},"error_y":{"color":"#2a3f5f"},"marker":{"line":{"color":"white","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"bar"}],"carpet":[{"aaxis":{"endlinecolor":"#2a3f5f","gridcolor":"#C8D4E3","linecolor":"#C8D4E3","minorgridcolor":"#C8D4E3","startlinecolor":"#2a3f5f"},"baxis":{"endlinecolor":"#2a3f5f","gridcolor":"#C8D4E3","linecolor":"#C8D4E3","minorgridcolor":"#C8D4E3","startlinecolor":"#2a3f5f"},"type":"carpet"}],"choropleth":[{"colorbar":{"outlinewidth":0,"ticks":""},"type":"choropleth"}],"contourcarpet":[{"colorbar":{"outlinewidth":0,"ticks":""},"type":"contourcarpet"}],"contour":[{"colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"type":"contour"}],"heatmap":[{"colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"type":"heatmap"}],"histogram2dcontour":[{"colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"type":"histogram2dcontour"}],"histogram2d":[{"colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"type":"histogram2d"}],"histogram":[{"marker":{"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"histogram"}],"mesh3d":[{"colorbar":{"outlinewidth":0,"ticks":""},"type":"mesh3d"}],"parcoords":[{"line":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"parcoords"}],"pie":[{"automargin":true,"type":"pie"}],"scatter3d":[{"line":{"colorbar":{"outlinewidth":0,"ticks":""}},"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scatter3d"}],"scattercarpet":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scattercarpet"}],"scattergeo":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scattergeo"}],"scattergl":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scattergl"}],"scattermap":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scattermap"}],"scatterpolargl":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scatterpolargl"}],"scatterpolar":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scatterpolar"}],"scatter":[{"fillpattern":{"fillmode":"overlay","size":10,"solidity":0.2},"type":"scatter"}],"scatterternary":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scatterternary"}],"surface":[{"colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"type":"surface"}],"table":[{"cells":{"fill":{"color":"#EBF0F8"},"line":{"color":"white"}},"header":{"fill":{"color":"#C8D4E3"},"line":{"color":"white"}},"type":"table"}]},"layout":{"annotationdefaults":{"arrowcolor":"#2a3f5f","arrowhead":0,"arrowwidth":1},"autotypenumbers":"strict","coloraxis":{"colorbar":{"outlinewidth":0,"ticks":""}},"colorscale":{"diverging":[[0,"#8e0152"],[0.1,"#c51b7d"],[0.2,"#de77ae"],[0.3,"#f1b6da"],[0.4,"#fde0ef"],[0.5,"#f7f7f7"],[0.6,"#e6f5d0"],[0.7,"#b8e186"],[0.8,"#7fbc41"],[0.9,"#4d9221"],[1,"#276419"]],"sequential":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"sequentialminus":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]},"colorway":["#636efa","#EF553B","#00cc96","#ab63fa","#FFA15A","#19d3f3","#FF6692","#B6E880","#FF97FF","#FECB52"],"font":{"color":"#2a3f5f"},"geo":{"bgcolor":"white","lakecolor":"white","landcolor":"white","showlakes":true,"showland":true,"subunitcolor":"#C8D4E3"},"hoverlabel":{"align":"left"},"hovermode":"closest","paper_bgcolor":"white","plot_bgcolor":"white","polar":{"angularaxis":{"gridcolor":"#EBF0F8","linecolor":"#EBF0F8","ticks":""},"bgcolor":"white","radialaxis":{"gridcolor":"#EBF0F8","linecolor":"#EBF0F8","ticks":""}},"scene":{"xaxis":{"backgroundcolor":"white","gridcolor":"#DFE8F3","gridwidth":2,"linecolor":"#EBF0F8","showbackground":true,"ticks":"","zerolinecolor":"#EBF0F8"},"yaxis":{"backgroundcolor":"white","gridcolor":"#DFE8F3","gridwidth":2,"linecolor":"#EBF0F8","showbackground":true,"ticks":"","zerolinecolor":"#EBF0F8"},"zaxis":{"backgroundcolor":"white","gridcolor":"#DFE8F3","gridwidth":2,"linecolor":"#EBF0F8","showbackground":true,"ticks":"","zerolinecolor":"#EBF0F8"}},"shapedefaults":{"line":{"color":"#2a3f5f"}},"ternary":{"aaxis":{"gridcolor":"#DFE8F3","linecolor":"#A2B1C6","ticks":""},"baxis":{"gridcolor":"#DFE8F3","linecolor":"#A2B1C6","ticks":""},"bgcolor":"white","caxis":{"gridcolor":"#DFE8F3","linecolor":"#A2B1C6","ticks":""}},"title":{"x":0.05},"xaxis":{"automargin":true,"gridcolor":"#EBF0F8","linecolor":"#EBF0F8","ticks":"","title":{"standoff":15},"zerolinecolor":"#EBF0F8","zerolinewidth":2},"yaxis":{"automargin":true,"gridcolor":"#EBF0F8","linecolor":"#EBF0F8","ticks":"","title":{"standoff":15},"zerolinecolor":"#EBF0F8","zerolinewidth":2}}},"xaxis":{"anchor":"y","domain":[0.0,0.94]},"yaxis":{"anchor":"x","domain":[0.0,1.0],"title":{"text":"tokens"}},"yaxis2":{"anchor":"x","overlaying":"y","side":"right","title":{"text":"success %"},"range":[0,105]},"barmode":"stack","title":{"text":"Tokens per task run (mean) and success rate"},"margin":{"l":50,"r":30,"t":50,"b":50},"font":{"family":"Inter, system-ui, sans-serif"},"height":420},                        {"responsive": true}                    )                };            </script>        </div></div>
+  <div class="card"><div style="height:420px; width:100%;">                            <div id="3518aa14-5a2f-434b-853a-96b977501093" class="plotly-graph-div" style="height:100%; width:100%;"></div>            <script>                window.PLOTLYENV=window.PLOTLYENV || {};                                if (document.getElementById("3518aa14-5a2f-434b-853a-96b977501093")) {                    Plotly.newPlot(                        "3518aa14-5a2f-434b-853a-96b977501093",                        [{"colorbar":{"title":{"text":"% pass"}},"colorscale":[[0.0,"rgb(165,0,38)"],[0.1,"rgb(215,48,39)"],[0.2,"rgb(244,109,67)"],[0.3,"rgb(253,174,97)"],[0.4,"rgb(254,224,139)"],[0.5,"rgb(255,255,191)"],[0.6,"rgb(217,239,139)"],[0.7,"rgb(166,217,106)"],[0.8,"rgb(102,189,99)"],[0.9,"rgb(26,152,80)"],[1.0,"rgb(0,104,55)"]],"x":["baseline","+repo_map","+truncation","+compaction","+routing","+stable_prefix"],"y":["t01_mean","t02_fizzbuzz","t03_palindrome","t04_word_count","t05_median","t06_temperature","t07_slugify","t08_inventory","t09_csv_strip","t10_rename","t11_divide_zero","t12_config_port"],"z":[[100.0,100.0,100.0,100.0,100.0,100.0],[0.0,0.0,0.0,0.0,0.0,0.0],[0.0,0.0,0.0,0.0,0.0,0.0],[0.0,100.0,100.0,100.0,100.0,100.0],[0.0,0.0,0.0,0.0,0.0,0.0],[0.0,100.0,100.0,100.0,100.0,100.0],[0.0,0.0,0.0,0.0,0.0,0.0],[0.0,100.0,100.0,100.0,100.0,0.0],[0.0,100.0,100.0,0.0,100.0,100.0],[0.0,0.0,0.0,0.0,0.0,0.0],[0.0,0.0,0.0,0.0,0.0,0.0],[0.0,100.0,100.0,100.0,100.0,100.0]],"zmax":100,"zmin":0,"type":"heatmap"}],                        {"template":{"data":{"barpolar":[{"marker":{"line":{"color":"white","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"barpolar"}],"bar":[{"error_x":{"color":"#2a3f5f"},"error_y":{"color":"#2a3f5f"},"marker":{"line":{"color":"white","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"bar"}],"carpet":[{"aaxis":{"endlinecolor":"#2a3f5f","gridcolor":"#C8D4E3","linecolor":"#C8D4E3","minorgridcolor":"#C8D4E3","startlinecolor":"#2a3f5f"},"baxis":{"endlinecolor":"#2a3f5f","gridcolor":"#C8D4E3","linecolor":"#C8D4E3","minorgridcolor":"#C8D4E3","startlinecolor":"#2a3f5f"},"type":"carpet"}],"choropleth":[{"colorbar":{"outlinewidth":0,"ticks":""},"type":"choropleth"}],"contourcarpet":[{"colorbar":{"outlinewidth":0,"ticks":""},"type":"contourcarpet"}],"contour":[{"colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"type":"contour"}],"heatmap":[{"colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"type":"heatmap"}],"histogram2dcontour":[{"colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"type":"histogram2dcontour"}],"histogram2d":[{"colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"type":"histogram2d"}],"histogram":[{"marker":{"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"histogram"}],"mesh3d":[{"colorbar":{"outlinewidth":0,"ticks":""},"type":"mesh3d"}],"parcoords":[{"line":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"parcoords"}],"pie":[{"automargin":true,"type":"pie"}],"scatter3d":[{"line":{"colorbar":{"outlinewidth":0,"ticks":""}},"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scatter3d"}],"scattercarpet":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scattercarpet"}],"scattergeo":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scattergeo"}],"scattergl":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scattergl"}],"scattermap":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scattermap"}],"scatterpolargl":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scatterpolargl"}],"scatterpolar":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scatterpolar"}],"scatter":[{"fillpattern":{"fillmode":"overlay","size":10,"solidity":0.2},"type":"scatter"}],"scatterternary":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scatterternary"}],"surface":[{"colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"type":"surface"}],"table":[{"cells":{"fill":{"color":"#EBF0F8"},"line":{"color":"white"}},"header":{"fill":{"color":"#C8D4E3"},"line":{"color":"white"}},"type":"table"}]},"layout":{"annotationdefaults":{"arrowcolor":"#2a3f5f","arrowhead":0,"arrowwidth":1},"autotypenumbers":"strict","coloraxis":{"colorbar":{"outlinewidth":0,"ticks":""}},"colorscale":{"diverging":[[0,"#8e0152"],[0.1,"#c51b7d"],[0.2,"#de77ae"],[0.3,"#f1b6da"],[0.4,"#fde0ef"],[0.5,"#f7f7f7"],[0.6,"#e6f5d0"],[0.7,"#b8e186"],[0.8,"#7fbc41"],[0.9,"#4d9221"],[1,"#276419"]],"sequential":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"sequentialminus":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]},"colorway":["#636efa","#EF553B","#00cc96","#ab63fa","#FFA15A","#19d3f3","#FF6692","#B6E880","#FF97FF","#FECB52"],"font":{"color":"#2a3f5f"},"geo":{"bgcolor":"white","lakecolor":"white","landcolor":"white","showlakes":true,"showland":true,"subunitcolor":"#C8D4E3"},"hoverlabel":{"align":"left"},"hovermode":"closest","paper_bgcolor":"white","plot_bgcolor":"white","polar":{"angularaxis":{"gridcolor":"#EBF0F8","linecolor":"#EBF0F8","ticks":""},"bgcolor":"white","radialaxis":{"gridcolor":"#EBF0F8","linecolor":"#EBF0F8","ticks":""}},"scene":{"xaxis":{"backgroundcolor":"white","gridcolor":"#DFE8F3","gridwidth":2,"linecolor":"#EBF0F8","showbackground":true,"ticks":"","zerolinecolor":"#EBF0F8"},"yaxis":{"backgroundcolor":"white","gridcolor":"#DFE8F3","gridwidth":2,"linecolor":"#EBF0F8","showbackground":true,"ticks":"","zerolinecolor":"#EBF0F8"},"zaxis":{"backgroundcolor":"white","gridcolor":"#DFE8F3","gridwidth":2,"linecolor":"#EBF0F8","showbackground":true,"ticks":"","zerolinecolor":"#EBF0F8"}},"shapedefaults":{"line":{"color":"#2a3f5f"}},"ternary":{"aaxis":{"gridcolor":"#DFE8F3","linecolor":"#A2B1C6","ticks":""},"baxis":{"gridcolor":"#DFE8F3","linecolor":"#A2B1C6","ticks":""},"bgcolor":"white","caxis":{"gridcolor":"#DFE8F3","linecolor":"#A2B1C6","ticks":""}},"title":{"x":0.05},"xaxis":{"automargin":true,"gridcolor":"#EBF0F8","linecolor":"#EBF0F8","ticks":"","title":{"standoff":15},"zerolinecolor":"#EBF0F8","zerolinewidth":2},"yaxis":{"automargin":true,"gridcolor":"#EBF0F8","linecolor":"#EBF0F8","ticks":"","title":{"standoff":15},"zerolinecolor":"#EBF0F8","zerolinewidth":2}}},"title":{"text":"Success per task and mode (% of runs graded as passing)"},"margin":{"l":50,"r":30,"t":50,"b":50},"font":{"family":"Inter, system-ui, sans-serif"},"height":420},                        {"responsive": true}                    )                };            </script>        </div></div>
+  <div class="card">
+    <table>
+      <tr><th>Mode</th><th>repo map</th><th>truncation</th><th>compaction</th><th>routing</th><th>stable prefix</th></tr>
+      
+      <tr><td><code>baseline</code></td>
+        <td>–</td><td>–</td><td>–</td><td>–</td><td>–</td></tr>
+      
+      <tr><td><code>+repo_map</code></td>
+        <td>✔</td><td>–</td><td>–</td><td>–</td><td>–</td></tr>
+      
+      <tr><td><code>+truncation</code></td>
+        <td>✔</td><td>✔</td><td>–</td><td>–</td><td>–</td></tr>
+      
+      <tr><td><code>+compaction</code></td>
+        <td>✔</td><td>✔</td><td>✔</td><td>–</td><td>–</td></tr>
+      
+      <tr><td><code>+routing</code></td>
+        <td>✔</td><td>✔</td><td>✔</td><td>✔</td><td>–</td></tr>
+      
+      <tr><td><code>+stable_prefix</code></td>
+        <td>✔</td><td>✔</td><td>✔</td><td>✔</td><td>✔</td></tr>
+      
+    </table>
+  </div>
+
+
+
+  
+  <h2>Freshness checker: 20 snippets (10 stale, 10 current)</h2>
+  <div class="kpis">
+    <div class="kpi"><b>60%</b><span>stale APIs caught (recall)</span></div>
+    <div class="kpi"><b>55%</b><span>"changed" verdicts that were right (precision)</span></div>
+    <div class="kpi"><b>0</b><span>stale APIs wrongly called current</span></div>
+    <div class="kpi"><b>4 / 4</b><span>unverifiable (stale / current)</span></div>
+  </div>
+  <div class="card"><div style="height:420px; width:100%;">                            <div id="0186bf4d-aeb9-4a08-8fcf-779e218c0570" class="plotly-graph-div" style="height:100%; width:100%;"></div>            <script>                window.PLOTLYENV=window.PLOTLYENV || {};                                if (document.getElementById("0186bf4d-aeb9-4a08-8fcf-779e218c0570")) {                    Plotly.newPlot(                        "0186bf4d-aeb9-4a08-8fcf-779e218c0570",                        [{"marker":{"color":"#d4543b"},"name":"changed","x":["stale (expect changed)","current (expect supported)"],"y":[6,5],"type":"bar"},{"marker":{"color":"#3ba55c"},"name":"supported","x":["stale (expect changed)","current (expect supported)"],"y":[0,1],"type":"bar"},{"marker":{"color":"#c9a227"},"name":"unverifiable","x":["stale (expect changed)","current (expect supported)"],"y":[4,4],"type":"bar"}],                        {"template":{"data":{"barpolar":[{"marker":{"line":{"color":"white","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"barpolar"}],"bar":[{"error_x":{"color":"#2a3f5f"},"error_y":{"color":"#2a3f5f"},"marker":{"line":{"color":"white","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"bar"}],"carpet":[{"aaxis":{"endlinecolor":"#2a3f5f","gridcolor":"#C8D4E3","linecolor":"#C8D4E3","minorgridcolor":"#C8D4E3","startlinecolor":"#2a3f5f"},"baxis":{"endlinecolor":"#2a3f5f","gridcolor":"#C8D4E3","linecolor":"#C8D4E3","minorgridcolor":"#C8D4E3","startlinecolor":"#2a3f5f"},"type":"carpet"}],"choropleth":[{"colorbar":{"outlinewidth":0,"ticks":""},"type":"choropleth"}],"contourcarpet":[{"colorbar":{"outlinewidth":0,"ticks":""},"type":"contourcarpet"}],"contour":[{"colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"type":"contour"}],"heatmap":[{"colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"type":"heatmap"}],"histogram2dcontour":[{"colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"type":"histogram2dcontour"}],"histogram2d":[{"colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"type":"histogram2d"}],"histogram":[{"marker":{"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"histogram"}],"mesh3d":[{"colorbar":{"outlinewidth":0,"ticks":""},"type":"mesh3d"}],"parcoords":[{"line":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"parcoords"}],"pie":[{"automargin":true,"type":"pie"}],"scatter3d":[{"line":{"colorbar":{"outlinewidth":0,"ticks":""}},"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scatter3d"}],"scattercarpet":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scattercarpet"}],"scattergeo":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scattergeo"}],"scattergl":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scattergl"}],"scattermap":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scattermap"}],"scatterpolargl":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scatterpolargl"}],"scatterpolar":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scatterpolar"}],"scatter":[{"fillpattern":{"fillmode":"overlay","size":10,"solidity":0.2},"type":"scatter"}],"scatterternary":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scatterternary"}],"surface":[{"colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"type":"surface"}],"table":[{"cells":{"fill":{"color":"#EBF0F8"},"line":{"color":"white"}},"header":{"fill":{"color":"#C8D4E3"},"line":{"color":"white"}},"type":"table"}]},"layout":{"annotationdefaults":{"arrowcolor":"#2a3f5f","arrowhead":0,"arrowwidth":1},"autotypenumbers":"strict","coloraxis":{"colorbar":{"outlinewidth":0,"ticks":""}},"colorscale":{"diverging":[[0,"#8e0152"],[0.1,"#c51b7d"],[0.2,"#de77ae"],[0.3,"#f1b6da"],[0.4,"#fde0ef"],[0.5,"#f7f7f7"],[0.6,"#e6f5d0"],[0.7,"#b8e186"],[0.8,"#7fbc41"],[0.9,"#4d9221"],[1,"#276419"]],"sequential":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"sequentialminus":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]},"colorway":["#636efa","#EF553B","#00cc96","#ab63fa","#FFA15A","#19d3f3","#FF6692","#B6E880","#FF97FF","#FECB52"],"font":{"color":"#2a3f5f"},"geo":{"bgcolor":"white","lakecolor":"white","landcolor":"white","showlakes":true,"showland":true,"subunitcolor":"#C8D4E3"},"hoverlabel":{"align":"left"},"hovermode":"closest","paper_bgcolor":"white","plot_bgcolor":"white","polar":{"angularaxis":{"gridcolor":"#EBF0F8","linecolor":"#EBF0F8","ticks":""},"bgcolor":"white","radialaxis":{"gridcolor":"#EBF0F8","linecolor":"#EBF0F8","ticks":""}},"scene":{"xaxis":{"backgroundcolor":"white","gridcolor":"#DFE8F3","gridwidth":2,"linecolor":"#EBF0F8","showbackground":true,"ticks":"","zerolinecolor":"#EBF0F8"},"yaxis":{"backgroundcolor":"white","gridcolor":"#DFE8F3","gridwidth":2,"linecolor":"#EBF0F8","showbackground":true,"ticks":"","zerolinecolor":"#EBF0F8"},"zaxis":{"backgroundcolor":"white","gridcolor":"#DFE8F3","gridwidth":2,"linecolor":"#EBF0F8","showbackground":true,"ticks":"","zerolinecolor":"#EBF0F8"}},"shapedefaults":{"line":{"color":"#2a3f5f"}},"ternary":{"aaxis":{"gridcolor":"#DFE8F3","linecolor":"#A2B1C6","ticks":""},"baxis":{"gridcolor":"#DFE8F3","linecolor":"#A2B1C6","ticks":""},"bgcolor":"white","caxis":{"gridcolor":"#DFE8F3","linecolor":"#A2B1C6","ticks":""}},"title":{"x":0.05},"xaxis":{"automargin":true,"gridcolor":"#EBF0F8","linecolor":"#EBF0F8","ticks":"","title":{"standoff":15},"zerolinecolor":"#EBF0F8","zerolinewidth":2},"yaxis":{"automargin":true,"gridcolor":"#EBF0F8","linecolor":"#EBF0F8","ticks":"","title":{"standoff":15},"zerolinecolor":"#EBF0F8","zerolinewidth":2}}},"barmode":"stack","title":{"text":"Freshness verdicts by ground truth"},"margin":{"l":50,"r":30,"t":50,"b":50},"font":{"family":"Inter, system-ui, sans-serif"},"height":420},                        {"responsive": true}                    )                };            </script>        </div></div>
+  <div class="card">
+  <table>
+    <tr><th>Snippet</th><th>Truth</th><th>Verdict</th><th>Confidence</th><th class="ev">Evidence (verbatim) / source</th><th class="num">s</th></tr>
+    
+    
+    <tr><td><code>openai.ChatCompletion.create</code></td><td>changed</td>
+      <td class="warn">unverifiable</td>
+      <td>low</td>
+      <td class="ev"><a href="https://github.com/jsboige/CoursIA/blob/main/.claude/agents/notebook-modernizer.md">https://github.com/jsboige/CoursIA/blob/main/.claude/agents/notebook-modernizer.md</a><div class="muted">judge&#39;s quote was not found in the cited source</div></td>
+      <td class="num">10</td></tr>
+    
+    
+    <tr><td><code>openai.Completion.create</code></td><td>changed</td>
+      <td class="warn">unverifiable</td>
+      <td>low</td>
+      <td class="ev"></td>
+      <td class="num">7</td></tr>
+    
+    
+    <tr><td><code>openai.Embedding.create</code></td><td>changed</td>
+      <td class="warn">unverifiable</td>
+      <td>low</td>
+      <td class="ev"></td>
+      <td class="num">8</td></tr>
+    
+    
+    <tr><td><code>pydantic.BaseModel.dict</code></td><td>changed</td>
+      <td class="good">changed</td>
+      <td>high</td>
+      <td class="ev">“Deprecated in v2.11, removed in v3”<br><a href="https://docs.pydantic.dev/latest/concepts/fields">https://docs.pydantic.dev/latest/concepts/fields</a></td>
+      <td class="num">8</td></tr>
+    
+    
+    <tr><td><code>pydantic.BaseModel.parse_obj</code></td><td>changed</td>
+      <td class="good">changed</td>
+      <td>high</td>
+      <td class="ev">“The `from_orm` method has been deprecated; you can now just use `model_validate` (equivalent to `parse_obj` from Pydantic V1) to achieve something similar, as long as you’ve set `from_attributes=True` in the model config.”<br><a href="https://docs.pydantic.dev/latest/migration">https://docs.pydantic.dev/latest/migration</a></td>
+      <td class="num">8</td></tr>
+    
+    
+    <tr><td><code>pydantic.validator</code></td><td>changed</td>
+      <td class="good">changed</td>
+      <td>high</td>
+      <td class="ev">“@validator has been deprecated, and should be replaced with @field_validator”<br><a href="https://docs.pydantic.dev/latest/migration">https://docs.pydantic.dev/latest/migration</a></td>
+      <td class="num">6</td></tr>
+    
+    
+    <tr><td><code>pydantic.parse_obj_as</code></td><td>changed</td>
+      <td class="good">changed</td>
+      <td>high</td>
+      <td class="ev">“The `TypeAdapter` class lets you create an object with methods for validating, serializing, and producing JSON schemas for arbitrary types. This serves as a complete replacement for `parse_obj_as` and `schema_of` (which are now deprecated), and also covers some of the use cases of “root” models.”<br><a href="https://docs.pydantic.dev/latest/migration">https://docs.pydantic.dev/latest/migration</a></td>
+      <td class="num">11</td></tr>
+    
+    
+    <tr><td><code>numpy.float</code></td><td>changed</td>
+      <td class="good">changed</td>
+      <td>high</td>
+      <td class="ev">“Alias `np.float_` has been removed. Use `np.float64` instead.”<br><a href="https://numpy.org/devdocs/release/2.0.0-notes.html">https://numpy.org/devdocs/release/2.0.0-notes.html</a></td>
+      <td class="num">9</td></tr>
+    
+    
+    <tr><td><code>numpy.asscalar</code></td><td>changed</td>
+      <td class="good">changed</td>
+      <td>high</td>
+      <td class="ev">“The numpy.asscalar function is deprecated. It is an alias to the more powerful numpy.ndarray.item, not tested, and fails for scalars.”<br><a href="https://numpy.org/doc/stable/search.html?q=Scalars">https://numpy.org/doc/stable/search.html?q=Scalars</a></td>
+      <td class="num">7</td></tr>
+    
+    
+    <tr><td><code>sqlalchemy.ext.declarative.declarative_base</code></td><td>changed</td>
+      <td class="warn">unverifiable</td>
+      <td>low</td>
+      <td class="ev"><a href="http://docs.sqlalchemy.org/en/latest/changelog/migration_14.html">http://docs.sqlalchemy.org/en/latest/changelog/migration_14.html</a><div class="muted">judge&#39;s quote was not found in the cited source</div></td>
+      <td class="num">9</td></tr>
+    
+    
+    <tr><td><code>openai.OpenAI</code></td><td>supported</td>
+      <td class="warn">unverifiable</td>
+      <td>low</td>
+      <td class="ev"><div class="muted">judge cited no source we provided</div></td>
+      <td class="num">7</td></tr>
+    
+    
+    <tr><td><code>pydantic.field_validator</code></td><td>supported</td>
+      <td class="bad">changed</td>
+      <td>high</td>
+      <td class="ev">“@validator has been deprecated, and should be replaced with @field_validator, which provides various new features and improvements.”<br><a href="https://docs.pydantic.dev/latest/migration">https://docs.pydantic.dev/latest/migration</a></td>
+      <td class="num">7</td></tr>
+    
+    
+    <tr><td><code>pydantic.TypeAdapter</code></td><td>supported</td>
+      <td class="good">supported</td>
+      <td>high</td>
+      <td class="ev">“In Pydantic V2 this is a lot easier: the `TypeAdapter` class lets you create an object with methods for validating, serializing, and producing JSON schemas for arbitrary types. This serves as a complete replacement for `parse_obj_as` and `schema_of` (which are now deprecated), and also covers some of the use cases of “root” models. (`RootModel`, discussed above, covers the others.)”<br><a href="https://docs.pydantic.dev/latest/migration">https://docs.pydantic.dev/latest/migration</a></td>
+      <td class="num">12</td></tr>
+    
+    
+    <tr><td><code>pydantic.ConfigDict</code></td><td>supported</td>
+      <td class="bad">changed</td>
+      <td>high</td>
+      <td class="ev">“In Pydantic V2, to specify config on a model, you should set a class attribute called `model_config` to be a dict with the key/value pairs you want to be used as the config. The Pydantic V1 behavior to create a class called `Config` in the namespace of the parent `BaseModel` subclass is now deprecated.”<br><a href="https://docs.pydantic.dev/latest/migration">https://docs.pydantic.dev/latest/migration</a></td>
+      <td class="num">9</td></tr>
+    
+    
+    <tr><td><code>numpy.linspace</code></td><td>supported</td>
+      <td class="warn">unverifiable</td>
+      <td>low</td>
+      <td class="ev"><div class="muted">judge cited no source we provided</div></td>
+      <td class="num">7</td></tr>
+    
+    
+    <tr><td><code>numpy.float64</code></td><td>supported</td>
+      <td class="bad">changed</td>
+      <td>high</td>
+      <td class="ev">“Alias `np.float_` has been removed. Use `np.float64` instead.”<br><a href="https://numpy.org/devdocs/release/2.0.0-notes.html">https://numpy.org/devdocs/release/2.0.0-notes.html</a></td>
+      <td class="num">9</td></tr>
+    
+    
+    <tr><td><code>sqlalchemy.select</code></td><td>supported</td>
+      <td class="bad">changed</td>
+      <td>high</td>
+      <td class="ev">“Deprecated since version 1.4: The `Selectable.replace_selectable()` method is deprecated, and will be removed in a future release. Similar functionality is available via the sqlalchemy.sql.visitors module.”<br><a href="http://docs.sqlalchemy.org/en/latest/core/selectable.html">http://docs.sqlalchemy.org/en/latest/core/selectable.html</a></td>
+      <td class="num">9</td></tr>
+    
+    
+    <tr><td><code>sqlalchemy.orm.DeclarativeBase</code></td><td>supported</td>
+      <td class="bad">changed</td>
+      <td>high</td>
+      <td class="ev">“Changed in version 2.0: The `DeclarativeBase` superclass supersedes the use of the `declarative_base()` function and `registry.generate_base()` methods; the superclass approach integrates with PEP 484 tools without the use of plugins. See ORM Declarative Models for migration notes.”<br><a href="http://docs.sqlalchemy.org/en/latest/orm/mapping_styles.html">http://docs.sqlalchemy.org/en/latest/orm/mapping_styles.html</a></td>
+      <td class="num">11</td></tr>
+    
+    
+    <tr><td><code>requests.get</code></td><td>supported</td>
+      <td class="warn">unverifiable</td>
+      <td>low</td>
+      <td class="ev"><a href="https://requests.readthedocs.io/en/latest/_modules/requests/adapters">https://requests.readthedocs.io/en/latest/_modules/requests/adapters</a><div class="muted">judge&#39;s quote was not found in the cited source</div></td>
+      <td class="num">9</td></tr>
+    
+    
+    <tr><td><code>fastapi.FastAPI</code></td><td>supported</td>
+      <td class="warn">unverifiable</td>
+      <td>low</td>
+      <td class="ev"></td>
+      <td class="num">9</td></tr>
+    
+  </table>
+  </div>
+
+
+
+  <p class="muted">Raw per-run records and full agent logs are in the results directory of the repository.</p>
+</main>
+</body>
+</html>

@@ -1,0 +1,2 @@
+prompt = """Add a function median(values) to stats.py that returns the median of a non-empty list and raises ValueError for an empty list. Run the tests with: python3 -m unittest -q"""
+test_command = "python3 -m unittest -q"

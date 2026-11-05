@@ -1,0 +1,2 @@
+prompt = """test_mean fails. Fix the bug in calc.py. Run the tests with: python3 -m unittest -q"""
+test_command = "python3 -m unittest -q"

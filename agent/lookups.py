@@ -427,3 +427,48 @@ Rules:
 - "unverifiable": the sources don't settle it. Never guess; prefer this when unsure.
 - evidence_quote must be copied exactly from the source you cite; inference is yours."""
 
+
+# ─────────────────────────────────────────────────────────────
+# Benchmark (bench/)
+# ─────────────────────────────────────────────────────────────
+def _mode(repo_map: bool, truncate: bool, compaction: bool, routing: bool,
+          stable_prefix: bool) -> MappingProxyType:
+    return MappingProxyType({"repo_map": repo_map, "signatures": repo_map, "truncate": truncate,
+                             "compaction": compaction, "routing": routing,
+                             "stable_prefix": stable_prefix})
+
+
+# Cumulative ablation: each mode switches on one more token saver than the last.
+# (Diff edits and line-range reads are always on: they are how the tools work.)
+BENCH_MODES: Final = MappingProxyType({
+    "baseline":       _mode(False, False, False, False, False),
+    "+repo_map":      _mode(True,  False, False, False, False),
+    "+truncation":    _mode(True,  True,  False, False, False),
+    "+compaction":    _mode(True,  True,  True,  False, False),
+    "+routing":       _mode(True,  True,  True,  True,  False),
+    "+stable_prefix": _mode(True,  True,  True,  True,  True),
+})
+BENCH_DEFAULT_RUNS: Final = 3
+BENCH_MAX_TURNS: Final = 15
+BENCH_GRADE_TIMEOUT_SECONDS: Final = 60
+BENCH_TASKS_DIR: Final = "bench/tasks"
+BENCH_TASK_FILE: Final = "task.toml"
+BENCH_TASK_REPO_DIR: Final = "repo"
+BENCH_GRADE_FILE: Final = "grade_test.py"   # hidden from the agent; copied in after the run
+BENCH_SNIPPETS_FILE: Final = "bench/freshness/snippets.toml"
+BENCH_RESULTS_DIR: Final = "bench/results"
+BENCH_CODING_RESULTS: Final = "coding.jsonl"
+BENCH_FRESHNESS_RESULTS: Final = "freshness.jsonl"
+BENCH_META_FILE: Final = "meta.json"
+BENCH_LOGS_DIRNAME: Final = "logs"
+BENCH_REPORT_FILE: Final = "docs/index.html"   # GitHub Pages serves /docs
+BENCH_TEMPLATE: Final = "bench/templates/report.html.j2"
+PLOTLY_CDN: Final = "https://cdn.plot.ly/plotly-2.35.2.min.js"
+
+# The unattended bench approver allows ONLY these commands (exact prefix + nothing
+# but plain arguments), plus edits inside the throwaway sandbox. Everything else
+# — other commands, shell operators, git — is denied.
+BENCH_ALLOWED_COMMANDS: Final = ("python3 -m unittest", "python -m unittest",
+                                 "python3 -m pytest", "python -m pytest", "pytest")
+BENCH_SHELL_METACHARS: Final = frozenset(";&|<>`$(){}[]*?!~\\\n'\"")
+

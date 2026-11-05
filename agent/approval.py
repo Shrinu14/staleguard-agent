@@ -56,6 +56,7 @@ class PendingAction:
     apply: Callable[[], str] = field(repr=False)  # performs it; returns output text
     preview_lexer: str = "text"  # "diff" for edits, "bash" for commands
     change: CodeChange | None = None  # set by edit_file
+    command: str | None = None        # set by run_command: the exact shell command
     review: Review | None = None      # set by a reviewer before approval
 
 

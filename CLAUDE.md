@@ -76,7 +76,7 @@ freshness checker that catches outdated library/API usage in its own proposed co
 
 ---
 
-## 4. Current state (Pieces 1–9 — DONE)
+## 4. Current state (Pieces 1–10 — DONE)
 
 ```
 staleguard-agent/
@@ -99,6 +99,11 @@ staleguard-agent/
 │   ├── session.py      # JSONL session log in <repo>/.staleguard/sessions/
 │   └── cli.py          # `doctor`, `ping`, `tool`, `map`, `run`
 ├── bench/repos/mini_calc/  # buggy sample repo (mean() divides by len-1), unittest
+├── bench/tasks/tNN_*/  # 12 coding tasks: task.toml, repo/, hidden grade_test.py
+├── bench/freshness/snippets.toml  # 20 snippets (10 stale, 10 current), ground truth
+├── bench/{runner,freshness_bench,report}.py + templates/report.html.j2
+├── bench/results/<dir>/  # coding.jsonl, freshness.jsonl, meta.json, logs/
+├── docs/index.html     # generated report (GitHub Pages)
 ├── tests/              # test_llm, test_tools, test_context, test_loop
 └── freshness/__init__.py
 ```
@@ -256,6 +261,34 @@ Freshness checker (Piece 8, `freshness/`):
   inference/fix wrong (said "3.11 is latest"). Code guarantees quotes are real and
   sourced, not that reasoning is right → use a stronger `MODEL_JUDGE` for the demo.
 
+Benchmark (Piece 10, `bench/`, `staleguard bench coding|freshness|report`):
+- Coding: 12 tasks in `bench/tasks/` (prompt + visible unittest tests in `repo/`, and a
+  HIDDEN pytest `grade_test.py` copied in only after the run). Every grader verified
+  to fail before and pass after a reference fix. Modes = `BENCH_MODES`, cumulative:
+  baseline → +repo_map → +truncation → +compaction → +routing → +stable_prefix.
+- Unattended but narrow: `BenchApprover` allows edit_file (sandbox = temp copy) and
+  run_command only for `BENCH_ALLOWED_COMMANDS` with no `BENCH_SHELL_METACHARS`; git
+  denied; every decision logged. `PendingAction.command` carries the exact command
+  (the preview text is not parsed).
+- Records: API `usage` tokens (prompt/completion/cached), cost via BudgetGuard, turns,
+  seconds, tool calls, models/roles, denials. `run_coding` is resumable (skips
+  (task, mode, run) already in coding.jsonl) and run-major, so partial results cover
+  every mode.
+- Freshness: 20 snippets, live Tavily + judge, no cache; score = recall/precision with
+  "stale called supported" as the harmful error.
+- Report: `bench report <dir>` → `docs/index.html` (plotly from CDN, jinja2 autoescape).
+- Live freshness (qwen 7B judge): recall 60%, precision 55%, 0 stale called supported.
+  All 5 false alarms share one pattern: the verbatim quote names the target as the
+  REPLACEMENT ("replaced with @field_validator", "Use np.float64 instead",
+  "DeclarativeBase supersedes …"). Not tuned away — candidate fix after Piece 10.
+- Live coding, 1 full pass (72 runs, `bench/results/live`, qwen2.5-coder:7b, $0):
+  success baseline 8% → 50% with +repo_map; 42–50% for the other modes. Tokens per run
+  ~2.5–2.7k in every mode (tasks are tiny, so the repo map costs a bit more than it
+  saves: −4% to −9% vs baseline). +stable_prefix: cached share 20% → 86%, 11 s vs 14–19 s.
+  0 approver denials. Dominant failure: qwen describes the fix in prose and ends the run
+  without calling edit_file (reason `done`, ~2.6 turns); in baseline it often can't find
+  the file at all. Runs 2–3: `bench coding --runs 3 --out bench/results/live` (resumes).
+
 ---
 
 ## 5. Target architecture
@@ -398,7 +431,7 @@ Each piece: build → test → explain clearly → STOP for user confirmation.
 | 7 | Routing + history compaction (`router.py`) | Flags toggle each optimization |
 | 8 | Freshness checker (`freshness/`) wired into the diff/approval step | Stale OpenAI v0 / Pydantic v1 calls are flagged with sources |
 | 9 | `staleguard verify "<text>"` | Works on free-text LLM answers |
-| 10 | Benchmark: ~12 pytest-graded coding tasks × 3 runs × modes (ablation); ~20 freshness snippets (half stale); static HTML report (plotly + jinja2) for GitHub Pages | Report generated from real runs |
+| 10 | Benchmark: ~12 pytest-graded coding tasks × 3 runs × modes (ablation); ~20 freshness snippets (half stale); static HTML report (plotly + jinja2) for GitHub Pages | DONE |
 | 11 | Delivery: Makefile (`setup`, `demo`, `bench`), quick-start README with requirement→feature table, architecture diagram, results, limitations; GitHub Actions (ruff + pytest) | A fresh clone runs with Ollama + Tavily key only |
 | 12 | Demo assets: VHS/asciinema GIF, demo script | Video recorded by 14 Nov |
 

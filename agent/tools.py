@@ -269,6 +269,7 @@ def run_command(repo: Repo, command: str) -> PendingAction:
         preview=f"$ {command}\n# in {repo.root}",
         apply=apply,
         preview_lexer="bash",
+        command=command,
     )
 
 
