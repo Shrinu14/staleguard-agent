@@ -76,7 +76,7 @@ freshness checker that catches outdated library/API usage in its own proposed co
 
 ---
 
-## 4. Current state (Pieces 1–10 — DONE)
+## 4. Current state (Pieces 1–11 — DONE)
 
 ```
 staleguard-agent/
@@ -104,6 +104,8 @@ staleguard-agent/
 ├── bench/{runner,freshness_bench,report}.py + templates/report.html.j2
 ├── bench/results/<dir>/  # coding.jsonl, freshness.jsonl, meta.json, logs/
 ├── docs/index.html     # generated report (GitHub Pages)
+├── Makefile            # setup, demo, bench, report, lint, test, check
+├── .github/workflows/ci.yml  # ruff + offline pytest (uv sync --locked), no secrets
 ├── tests/              # test_llm, test_tools, test_context, test_loop
 └── freshness/__init__.py
 ```
@@ -289,6 +291,23 @@ Benchmark (Piece 10, `bench/`, `staleguard bench coding|freshness|report`):
   without calling edit_file (reason `done`, ~2.6 turns); in baseline it often can't find
   the file at all. Runs 2–3: `bench coding --runs 3 --out bench/results/live` (resumes).
 
+Delivery (Piece 11):
+- `staleguard init` (`agent/setup_env.py`): copies .env.example → .env if missing, fills
+  EMPTY `GENERATED_ENV_SECRETS` (both VKs `sk-bf-…`, setup token) via `secrets`, appends
+  missing lines, never overwrites or prints values, chmod 600. Only TAVILY_API_KEY is
+  left for the user.
+- `make setup` = uv sync → ollama pull → init → docker compose up -d → wait /health →
+  doctor → ping. `make demo` = check stale_api/chat.py → verify sample answer → agent
+  run on a mktemp copy of mini_calc (interactive approval). `make bench RUNS= RESULTS=`.
+- pyproject: `[tool.uv] default-groups = ["dev", "bench"]` (plotly/jinja2 on a plain
+  `uv sync`); pandas dropped (unused).
+- README: pitch, quick start, command table, requirement→feature tables (P01 + P05),
+  mermaid architecture, results tables from bench/results/live, limitations.
+- Verified: a copy of only git-shippable files → `uv sync --locked`, `init`, `make check`
+  (180 passed), `doctor` (VKs set), `docker compose config -q` OK. Not re-verified from
+  zero: a second Bifrost container on the generated keys (port/name clash with the
+  running one); the Bifrost flow itself was verified in Piece 2.
+
 ---
 
 ## 5. Target architecture
@@ -432,7 +451,7 @@ Each piece: build → test → explain clearly → STOP for user confirmation.
 | 8 | Freshness checker (`freshness/`) wired into the diff/approval step | Stale OpenAI v0 / Pydantic v1 calls are flagged with sources |
 | 9 | `staleguard verify "<text>"` | Works on free-text LLM answers |
 | 10 | Benchmark: ~12 pytest-graded coding tasks × 3 runs × modes (ablation); ~20 freshness snippets (half stale); static HTML report (plotly + jinja2) for GitHub Pages | DONE |
-| 11 | Delivery: Makefile (`setup`, `demo`, `bench`), quick-start README with requirement→feature table, architecture diagram, results, limitations; GitHub Actions (ruff + pytest) | A fresh clone runs with Ollama + Tavily key only |
+| 11 | Delivery: Makefile (`setup`, `demo`, `bench`), quick-start README with requirement→feature table, architecture diagram, results, limitations; GitHub Actions (ruff + pytest) | DONE |
 | 12 | Demo assets: VHS/asciinema GIF, demo script | Video recorded by 14 Nov |
 
 **Suggested dates:** 2 (Nov 5) · 3–4 (Nov 6–7) · 5 (Nov 8) · 6–7 (Nov 9–10) ·

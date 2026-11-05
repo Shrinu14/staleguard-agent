@@ -23,7 +23,11 @@ staleguard = "agent.cli:app"
 
 [dependency-groups]
 dev = ["pytest>=8", "ruff"]
-bench = ["pandas", "plotly", "jinja2"]
+bench = ["plotly", "jinja2"]
+
+[tool.uv]
+# `uv sync` installs both groups, so tests and the bench report work on a fresh clone.
+default-groups = ["dev", "bench"]
 
 [build-system]
 requires = ["hatchling"]

@@ -1,34 +1,160 @@
 # StaleGuard Agent
 
-A token-efficient coding agent (Geek Room Global AI Hackathon, Problem 01) with a built-in
-API-freshness checker (Problem 05), powered by **Bifrost by Maxim AI** and **Tavily**.
+**A token-efficient coding agent that checks its own code against live docs before you approve it.**
 
-> Work in progress. Full documentation is added as the project is built.
+Built for the Geek Room Global AI Hackathon 2026. One project covers two problem statements:
+- **Problem 01:** a coding agent with minimal token usage, powered by **Bifrost by Maxim AI**.
+- **Problem 05:** a stale-answer detector, powered by **Tavily**.
+
+LLMs are trained on old code, so they keep writing APIs that no longer exist
+(`openai.ChatCompletion.create`, Pydantic v1 `.dict()`, `np.float`). StaleGuard is a CLI
+agent that edits Python repos with as few tokens as it can. Every edit it proposes is
+checked against the library's live documentation, and the result shows up under the diff
+before you press `y`.
+
+```console
+$ uv run staleguard check chat.py --repo bench/repos/stale_api
+┃ Status          ┃ Claim / API (line)       ┃ Version ┃ Evidence (quoted from source)          ┃ Inference (model) / fix   ┃
+│ ✘ changed       │ openai.ChatCompletion    │ >=1.40  │ “You tried to access                   │ The API has been removed  │
+│ high confidence │ .create (L11)            │         │ openai.ChatCompletion, but this is no  │ in version 1.0.0 and      │
+│                 │                          │         │ longer supported in openai>=1.0.0 …”   │ later.                    │
+│                 │                          │         │ https://github.com/openai/openai-py…   │                           │
+│ ? unverifiable  │ openai.api_key (L7)      │ >=1.40  │                                        │ The sources provided do   │
+│ low confidence  │                          │         │                                        │ not explicitly state …    │
+2 checked · 1 from cache · 1 changed
+```
 
 ## Quick start
 
-Prerequisites: [uv](https://docs.astral.sh/uv/), [Docker Desktop](https://www.docker.com/),
-[Ollama](https://ollama.com) (runs natively so it can use the Mac GPU).
+You need [uv](https://docs.astral.sh/uv/), [Docker](https://www.docker.com/), and
+[Ollama](https://ollama.com) running natively, so it can use the GPU. The only key you
+need is a free [Tavily](https://app.tavily.com) API key. Everything else runs locally,
+and cloud models are optional.
 
 ```bash
-# 1. Python deps into .venv
+git clone <this repo> && cd staleguard-agent
+make setup          # uv sync, ollama pull, staleguard init (.env + Bifrost keys), Bifrost up, doctor, ping
+#   → add your TAVILY_API_KEY to .env (init tells you)
+make demo           # freshness check → verify an answer → agent fixes a bug (you approve each write)
+```
+
+`staleguard init` copies `.env.example` to `.env`. It generates the Bifrost virtual keys
+and the setup token, never prints them, and never overwrites a value you already set.
+
+<details><summary>Without make</summary>
+
+```bash
 uv sync
-
-# 2. Local model
 ollama pull qwen2.5-coder:7b
-
-# 3. Config: copy, then fill TAVILY_API_KEY and generate the Bifrost values
-cp .env.example .env
-#   BIFROST_VK_DEFAULT / BIFROST_VK_LOCAL:  echo "sk-bf-$(openssl rand -hex 24)"
-#   BIFROST_SETUP_TOKEN:                    openssl rand -hex 32
-
-# 4. Start the Bifrost gateway (http://localhost:8080)
-docker compose up -d
-
-# 5. Check everything
+uv run staleguard init                 # then put TAVILY_API_KEY in .env
+docker compose up -d                   # Bifrost on http://127.0.0.1:8080
 uv run staleguard doctor
 uv run staleguard ping
 ```
+</details>
+
+| Command | What it does |
+|---|---|
+| `staleguard run "<task>" --repo DIR` | Agent loop: reads freely, previews every write and waits for your approval |
+| `staleguard check FILE --repo DIR` | Freshness check of every third-party API in a file |
+| `staleguard verify "<text>"` / `--file` / `-` | Finds the time-sensitive claims in any LLM answer and re-checks them live |
+| `staleguard map` | Repo map plus a token comparison |
+| `staleguard bench coding\|freshness\|report` | Benchmark and HTML report |
+| `staleguard doctor` / `ping` / `init` | Setup and health |
+
+## How each requirement is met
+
+**Problem 01: a coding agent with minimal token usage (Bifrost)**
+
+| Requirement | How | Where |
+|---|---|---|
+| Real tasks, few tokens, measured savings | `ast` repo map with line ranges, output truncation, history compaction, planner/editor routing, stable prompt prefix. Each saver can be switched off, and the benchmark compares modes using the API's own `usage` numbers | `agent/context.py`, `agent/router.py`, `bench/` |
+| Survive outages; say when the model changes | Bifrost fallback chain (`MODEL_FALLBACKS`). The CLI prints *"Switched to X — Y unavailable"* | `agent/llm.py`, `bifrost/config.json` |
+| Per-user budget, checked **before** requests | Estimated cost is checked before every call. At 80% a warning prints. At the limit the agent stops and offers local-only. Bifrost enforces a second hard limit per key (402) | `agent/policy.py` |
+| Confidential repos → local models only | `.agent.toml` `confidential = true` selects a Bifrost key that can reach only Ollama. This is chosen before the task is read, so prompts can't change it. A broken policy file counts as confidential | `agent/policy.py`, `bifrost/config.json` |
+| Writes, shell and git need approval; reads don't | Write tools return a pending action with a diff or command preview. Python runs it only after `y` | `agent/tools.py`, `agent/approval.py` |
+
+**Problem 05: a stale-answer detector (Tavily)**
+
+| Requirement | How | Where |
+|---|---|---|
+| Find time-sensitive claims | Code: `ast` (no LLM). Prose: an extractor model, where every claim must quote the answer word for word | `freshness/extract.py`, `freshness/claims.py` |
+| Re-check with live research | Tavily, limited to official doc domains for known libraries. For code, only names are sent, never source | `freshness/research.py` |
+| Freshness or confidence indicator, with links | Confidence is computed in code: high = verified quote from official docs, medium = verified quote from another site, low = unverifiable | `freshness/report.py` |
+| Supported / changed / unverifiable | A judge answers in JSON. Code checks that the quote really appears in the cited source; if not, the claim is `unverifiable` | `freshness/judge.py` |
+| Evidence separate from inference | Separate columns: a verbatim quote, then the model's labelled reasoning | `freshness/report.py` |
+
+## Architecture
+
+```mermaid
+flowchart LR
+    U([You]) -->|task| CLI[staleguard CLI]
+    CLI --> L[Agent loop<br/>agent/loop.py]
+    L -->|repo map, read, search| T[Tools<br/>agent/tools.py]
+    L -->|edit, run, git| G{Approval gate}
+    G -->|diff + freshness table| U
+    G -.->|reviewer hook| F[Freshness checker<br/>freshness/]
+    F -->|names only| TV[(Tavily)]
+    F -->|judge| B
+    L -->|policy + budget check| P[agent/policy.py]
+    P -->|virtual key| B[Bifrost :8080<br/>fallbacks · budgets · key scopes]
+    B --> O[(Ollama, local)]
+    B -.->|optional| C[(Cloud providers)]
+```
+
+- The agent never holds provider keys. It authenticates to Bifrost with a virtual key:
+  **default** (any provider) or **local-only** (Ollama only, enforced by the gateway).
+- Everything that changes your repo goes through the approval gate. The freshness
+  checker is a reviewer on that gate, so a stale API is flagged before you approve, and
+  `changed` findings go back to the agent so it can fix them.
+
+## Results (real runs, local `qwen2.5-coder:7b`, $0)
+
+Full report: [`docs/index.html`](docs/index.html). Turn on GitHub Pages from `/docs` to
+serve it. Raw records and per-run logs are in [`bench/results/live`](bench/results/live).
+
+**Coding ablation:** 12 tasks × 6 cumulative modes, 1 run each (72 runs). A hidden pytest
+grader decides success.
+
+| Mode | Success | Tokens / run | Cached prompt share | Seconds |
+|---|---|---|---|---|
+| baseline | 8% | 2,460 | 21% | 14 |
+| +repo_map | **50%** | 2,674 | 20% | 19 |
+| +truncation | 50% | 2,674 | 20% | 18 |
+| +compaction | 42% | 2,570 | 20% | 17 |
+| +routing | 50% | 2,671 | 20% | 16 |
+| +stable_prefix | 42% | 2,625 | **86%** | **11** |
+
+- **The repo map is what makes tasks solvable.** Without it, the 7B model often can't find
+  the code at all.
+- **The stable prefix lets the provider cache most of the prompt** (20% → 86% cached).
+- On these one- or two-file tasks the map costs slightly more tokens than it saves. On
+  this repo itself the map is ~3k tokens versus ~17k to read every Python file.
+
+**Freshness:** 20 snippets checked live (10 use a stale API, 10 a current one).
+- Recall is 60%: 6 of 10 stale APIs were caught.
+- Precision is 55%.
+- **No stale API was called "supported"**, which is the harmful error.
+
+## Limitations
+
+- **A small local model.** The most common coding failure is qwen 7B describing the fix in
+  prose and then ending without calling `edit_file`. A stronger `MODEL_PLANNER` or
+  `MODEL_EDITOR` through Bifrost should raise the success rate. This hasn't been
+  benchmarked yet.
+- **Judge false alarms.** All 5 false positives quote docs that name the target as the
+  *replacement* ("Use `np.float64` instead"). The quotes are real, but the 7B judge reads
+  them the wrong way round. A stronger `MODEL_JUDGE` is recommended.
+- **Small benchmark.** So far there is 1 run per mode (n = 12 per mode), and the tasks are
+  tiny, so the token savers barely show. To add runs 2–3, run
+  `make bench RUNS=3 RESULTS=bench/results/live`. It resumes and only fills in what's
+  missing.
+- **Python only.** Extraction and the repo map use Python's `ast`.
+- **Routing does nothing with one model.** With only Ollama configured, every role is the
+  same model.
+- **Cloud models need a price.** An unpriced cloud model is refused, never guessed. Add a
+  price to `MODEL_PRICING_PER_MTOK` in `agent/lookups.py`.
+- Tested on macOS (Apple silicon). CI runs the offline tests on Linux.
 
 ## How model calls flow
 
@@ -219,7 +345,7 @@ uv run staleguard bench report bench/results/<dir>   # → docs/index.html
 | `agent/policy.py` | Confidential mode (local-only) and the budget ledger + pre-call check |
 | `agent/session.py` | JSONL log of every run in `<repo>/.staleguard/sessions/` |
 | `freshness/` | Freshness checker: `extract` (ast), `claims` (prose), `versions`, `research` (Tavily), `judge`, `cache`, `report`, `checker`, `verify` |
-| `agent/cli.py` | Command-line entry point (`doctor`, `ping`, `tool`, `map`, `check`, `verify`, `run`, `bench`) |
+| `agent/cli.py` | Command-line entry point (`init`, `doctor`, `ping`, `tool`, `map`, `check`, `verify`, `run`, `bench`) |
 | `bench/repos/` | Small buggy sample repos for demos |
 | `bench/tasks/` | 12 graded coding tasks (`task.toml`, `repo/`, hidden `grade_test.py`) |
 | `bench/freshness/snippets.toml` | 20 freshness snippets with ground truth |
@@ -228,10 +354,14 @@ uv run staleguard bench report bench/results/<dir>   # → docs/index.html
 | `docs/index.html` | Generated benchmark report (GitHub Pages) |
 | `bifrost/config.json` | Gateway config: providers and virtual keys |
 | `docker-compose.yml` | Runs Bifrost |
+| `Makefile` | `setup`, `demo`, `bench`, `report`, `check` |
+| `agent/setup_env.py` | `staleguard init`: creates `.env`, generates the Bifrost keys |
 
 ## Development
 
 ```bash
-uv run ruff check .
-uv run pytest
+make check          # uv run ruff check . && uv run pytest -q  (same as CI)
 ```
+
+CI (`.github/workflows/ci.yml`) runs ruff and the offline tests on every push and pull
+request. It needs no secrets, because the tests use fakes for the LLM and Tavily.

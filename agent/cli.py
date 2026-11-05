@@ -1,6 +1,5 @@
 """
 Command-line entry point. `staleguard <command>` maps to functions here.
-Commands for verify / bench are added in later pieces.
 """
 
 import json
@@ -53,6 +52,24 @@ console = Console()
 @app.callback()
 def main() -> None:
     """StaleGuard: token-efficient coding agent with live API-freshness checks."""
+
+
+@app.command()
+def init() -> None:
+    """Create .env (from .env.example) and generate the Bifrost keys. Safe to re-run."""
+    from agent.setup_env import ensure_env
+
+    res = ensure_env(Path.cwd())
+    if res.created:
+        console.print(f"[green]✔[/green] created {lookups.ENV_FILE} "
+                      f"from {lookups.ENV_EXAMPLE_FILE}")
+    for name in res.generated:
+        console.print(f"[green]✔[/green] generated {name}")
+    if not res.created and not res.generated:
+        console.print(f"[green]✔[/green] {lookups.ENV_FILE} already complete; nothing changed")
+    if res.missing_tavily:
+        console.print("[yellow]Next: add TAVILY_API_KEY to .env "
+                      "(free key at https://app.tavily.com).[/yellow]")
 
 
 @app.command()

@@ -472,3 +472,14 @@ BENCH_ALLOWED_COMMANDS: Final = ("python3 -m unittest", "python -m unittest",
                                  "python3 -m pytest", "python -m pytest", "pytest")
 BENCH_SHELL_METACHARS: Final = frozenset(";&|<>`$(){}[]*?!~\\\n'\"")
 
+
+# ── Setup (`staleguard init`) ────────────────────────────────
+ENV_FILE: Final = ".env"
+ENV_EXAMPLE_FILE: Final = ".env.example"
+# Values `init` generates when empty in .env: name -> (prefix, random bytes).
+# Bifrost reads the same .env (docker-compose), so agent and gateway always agree.
+GENERATED_ENV_SECRETS: Final = {
+    "BIFROST_VK_DEFAULT": ("sk-bf-", 24),
+    "BIFROST_VK_LOCAL": ("sk-bf-", 24),
+    "BIFROST_SETUP_TOKEN": ("", 32),
+}
